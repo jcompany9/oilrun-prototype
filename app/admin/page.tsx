@@ -107,7 +107,7 @@ export default function AdminDashboardPage() {
                     border: "1px solid #E5E7EB",
                     fontSize: 12,
                   }}
-                  formatter={(value: number) => [formatKRW(value), "매출"]}
+                  formatter={(value) => [formatKRW(Number(value) || 0), "매출"]}
                   labelFormatter={(label) => `${label}`}
                 />
                 <Line
@@ -150,7 +150,7 @@ export default function AdminDashboardPage() {
                     border: "1px solid #E5E7EB",
                     fontSize: 12,
                   }}
-                  formatter={(value: number) => [`${value}건`, "주문"]}
+                  formatter={(value) => [`${Number(value) || 0}건`, "주문"]}
                 />
                 <Bar
                   dataKey="orders"

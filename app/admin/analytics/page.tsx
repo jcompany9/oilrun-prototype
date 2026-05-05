@@ -67,7 +67,7 @@ export default function AdminAnalyticsPage() {
                     border: "1px solid #E5E7EB",
                     fontSize: 12,
                   }}
-                  formatter={(value: number) => [formatKRW(value), "GMV"]}
+                  formatter={(value) => [formatKRW(Number(value) || 0), "GMV"]}
                 />
                 <Line
                   type="monotone"
@@ -189,7 +189,7 @@ export default function AdminAnalyticsPage() {
                     border: "1px solid #E5E7EB",
                     fontSize: 12,
                   }}
-                  formatter={(value: number) => [formatKRW(value), "객단가"]}
+                  formatter={(value) => [formatKRW(Number(value) || 0), "객단가"]}
                 />
                 <Bar dataKey="avgPrice" fill="#1E40AF" radius={[0, 6, 6, 0]} />
               </BarChart>

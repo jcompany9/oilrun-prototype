@@ -157,7 +157,7 @@ export default function ShopRevenuePage() {
                   border: "1px solid #E5E7EB",
                   fontSize: 12,
                 }}
-                formatter={(value: number) => [formatKRW(value), "매출"]}
+                formatter={(value) => [formatKRW(Number(value) || 0), "매출"]}
               />
               <Line
                 type="monotone"
@@ -224,7 +224,7 @@ export default function ShopRevenuePage() {
                     border: "1px solid #E5E7EB",
                     fontSize: 12,
                   }}
-                  formatter={(value: number) => [formatKRW(value), "매출"]}
+                  formatter={(value) => [formatKRW(Number(value) || 0), "매출"]}
                 />
                 <Bar dataKey="revenue" fill="#1E40AF" radius={[0, 6, 6, 0]} />
               </BarChart>
