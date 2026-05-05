@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import {
   addOptions,
+  buildTimeDisplay,
   getAccessOption,
   mechanics,
   menus,
@@ -105,6 +106,17 @@ function OrderDetailPageInner() {
   const paymentMethod = searchParams.get("paymentMethod") ?? "toss"
   const accessOption = getAccessOption(searchParams.get("access"))
   const accessNote = searchParams.get("accessNote") ?? ""
+  const timeDisplay = buildTimeDisplay(
+    searchParams.get("timeSlot"),
+    searchParams.get("timeDate"),
+    searchParams.get("timeRange")
+  )
+  const arrivalText =
+    timeDisplay?.isScheduled && timeDisplay.secondary
+      ? `${timeDisplay.primary} ${timeDisplay.secondary}`
+      : timeDisplay
+        ? timeDisplay.secondary || timeDisplay.primary
+        : "16:30 도착 예정"
   const totalAmount =
     menu.price + selectedOptions.reduce((s, o) => s + o.price, 0) + 10000
 
@@ -149,6 +161,8 @@ function OrderDetailPageInner() {
         rating={rating}
         onRate={setRating}
         onFinalize={finalize}
+        arrivalText={arrivalText}
+        isScheduled={timeDisplay?.isScheduled ?? false}
       />
 
       <MechanicCard mechanic={mechanic} onCall={callMechanic} />
@@ -235,6 +249,8 @@ function StatusCard({
   rating,
   onRate,
   onFinalize,
+  arrivalText,
+  isScheduled,
 }: {
   status: DemoStatus
   vehicleModel: string
@@ -242,6 +258,8 @@ function StatusCard({
   rating: number
   onRate: (n: number) => void
   onFinalize: () => void
+  arrivalText: string
+  isScheduled: boolean
 }) {
   const isCompleted = status === "completed"
   const bg = isCompleted ? "#15803D" : "#1E40AF"
@@ -258,10 +276,17 @@ function StatusCard({
       <AnimatePresence mode="wait">
         {status === "assigned" && (
           <StatusBlock key="assigned" icon={<Check className="h-7 w-7" strokeWidth={3} />}>
-            <h2 className="text-2xl font-bold">배정 완료!</h2>
+            <h2 className="text-2xl font-bold">
+              {isScheduled ? "예약이 확정되었어요" : "배정 완료!"}
+            </h2>
             <p className="mt-1 text-sm text-blue-100">
-              16:30 도착 예정
+              {isScheduled ? `${arrivalText} 도착 예정` : `${arrivalText}`}
             </p>
+            {isScheduled && (
+              <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold text-blue-50">
+                💡 사전 예약된 작업입니다
+              </p>
+            )}
           </StatusBlock>
         )}
         {status === "dispatched" && (
@@ -271,7 +296,7 @@ function StatusCard({
           >
             <h2 className="text-2xl font-bold">정비사가 출발했어요</h2>
             <p className="mt-1 text-sm text-blue-100">
-              16:30 도착 예정 · 잠시만 기다려주세요
+              {arrivalText} · 잠시만 기다려주세요
             </p>
             <RouteProgress />
           </StatusBlock>

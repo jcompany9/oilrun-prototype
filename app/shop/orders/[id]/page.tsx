@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation"
 import { AnimatePresence, motion } from "framer-motion"
 import { toast } from "sonner"
 import {
+  CalendarClock,
   Camera,
   Check,
   ChevronLeft,
+  Info,
   KeyRound,
   MapPin,
   Navigation,
@@ -18,6 +20,8 @@ import {
 } from "lucide-react"
 import {
   addOptions,
+  DEMO_TODAY,
+  formatDateKoreanFull,
   getAccessOption,
   shopOrders,
   type OrderStatus,
@@ -137,6 +141,7 @@ export default function ShopOrderDetailPage({ params }: PageProps) {
       </header>
 
       <main className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-5">
+        <ScheduleCard order={order} />
         <CustomerCard order={order} />
         <AccessCard order={order} />
         <VehicleCard order={order} optionNames={optionItems.map((o) => o.name)} />
@@ -157,6 +162,57 @@ export default function ShopOrderDetailPage({ params }: PageProps) {
         <Timeline currentIdx={currentIdx} status={status} />
       </main>
     </div>
+  )
+}
+
+function ScheduleCard({ order }: { order: (typeof shopOrders)[number] }) {
+  const d = order.scheduledAt
+  const hours = d.getHours()
+  const minutes = d.getMinutes()
+  const period = hours < 12 ? "오전" : "오후"
+  const displayHour = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
+  const endHour = hours + 2
+  const endPeriod = endHour < 12 ? "오전" : "오후"
+  const endDisplayHour =
+    endHour === 0 ? 12 : endHour > 12 ? endHour - 12 : endHour
+  const sameMeridiem = period === endPeriod
+  const timeRange = sameMeridiem
+    ? `${period} ${displayHour}:${String(minutes).padStart(2, "0")} - ${endDisplayHour}:${String(minutes).padStart(2, "0")}`
+    : `${period} ${displayHour}:${String(minutes).padStart(2, "0")} - ${endPeriod} ${endDisplayHour}:${String(minutes).padStart(2, "0")}`
+
+  const isPreScheduled =
+    d.getDate() !== DEMO_TODAY.getDate() ||
+    d.getMonth() !== DEMO_TODAY.getMonth() ||
+    d.getFullYear() !== DEMO_TODAY.getFullYear()
+
+  return (
+    <section
+      className="rounded-xl p-5 ring-1"
+      style={{
+        backgroundColor: isPreScheduled ? "#EFF6FF" : "#FFFFFF",
+        ["--tw-ring-color" as string]: isPreScheduled ? "#BFDBFE" : "#E5E7EB",
+      }}
+    >
+      <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <CalendarClock className="h-3.5 w-3.5" />
+        작업 예정
+      </h2>
+      <p className="text-base font-bold text-gray-900">
+        {formatDateKoreanFull(d)}
+      </p>
+      <p className="mt-0.5 text-sm font-semibold text-gray-700 tabular-nums">
+        {timeRange}
+      </p>
+      {isPreScheduled && (
+        <p
+          className="mt-3 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold"
+          style={{ backgroundColor: "#DBEAFE", color: "#1E40AF" }}
+        >
+          <Info className="h-3 w-3" />
+          사전 예약된 작업입니다
+        </p>
+      )}
+    </section>
   )
 }
 

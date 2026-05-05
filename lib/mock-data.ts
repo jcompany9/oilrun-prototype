@@ -329,6 +329,26 @@ export const shopOrders: ShopOrder[] = [
     mechanicId: "k2",
     accessMethod: "call_on_arrival",
   },
+  {
+    id: "OR-006",
+    customerName: "한지우",
+    customerPhone: "010-1234-5678",
+    vehiclePlate: "12가7788",
+    vehicleModel: "그랜저 IG",
+    menuName: "프리미엄 합성유 0W-20",
+    menuOilSpec: "0W-20 합성유",
+    addOptions: [],
+    district: "강남구",
+    address: "강남구 청담동 45-12",
+    location: { lat: 37.5208, lng: 127.0473 },
+    scheduledAt: new Date(2026, 4, 8, 15, 0),
+    status: "scheduled",
+    total: 129000,
+    distance: 5.4,
+    timeUntil: "5월 8일 (금) 오후",
+    mechanicId: "k3",
+    accessMethod: "remote_unlock",
+  },
 ]
 
 export interface VehicleManufacturer {
@@ -835,3 +855,181 @@ export const weeklyRevenue: DailyRevenue[] = [
   { date: "5/4", revenue: 1390000, orders: 12 },
   { date: "5/5", revenue: 1920000, orders: 17 },
 ]
+
+export const DEMO_TODAY = new Date(2026, 4, 5)
+
+const HOLIDAY_KEYS = new Set<string>([
+  "2026-05-13",
+])
+
+const SLOT_TIMES = [
+  "09:00-11:00",
+  "11:00-13:00",
+  "13:00-15:00",
+  "15:00-17:00",
+  "17:00-19:00",
+  "19:00-21:00",
+] as const
+
+export interface DaySlot {
+  time: string
+  available: boolean
+}
+
+export interface AvailabilityDay {
+  date: string
+  dateObj: Date
+  slots: DaySlot[]
+}
+
+export function toDateKey(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+export function isHoliday(date: Date): boolean {
+  if (date.getDay() === 0) return true
+  return HOLIDAY_KEYS.has(toDateKey(date))
+}
+
+export function getAvailableSlotsForDate(date: Date): DaySlot[] {
+  if (isHoliday(date)) {
+    return SLOT_TIMES.map((t) => ({ time: t, available: false }))
+  }
+  const day = date.getDay()
+  const dateNum = date.getDate()
+
+  if (day === 6) {
+    return SLOT_TIMES.map((t) => ({
+      time: t,
+      available:
+        t === "09:00-11:00" ||
+        t === "11:00-13:00" ||
+        t === "13:00-15:00",
+    }))
+  }
+
+  return SLOT_TIMES.map((t, i) => {
+    if (t === "19:00-21:00") return { time: t, available: false }
+    const blocked = (dateNum * 3 + i * 7) % 11 === 0
+    return { time: t, available: !blocked }
+  })
+}
+
+export function buildAvailability(
+  daysAhead = 14,
+  base: Date = DEMO_TODAY
+): AvailabilityDay[] {
+  const out: AvailabilityDay[] = []
+  for (let i = 0; i < daysAhead; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i)
+    out.push({
+      date: toDateKey(d),
+      dateObj: d,
+      slots: getAvailableSlotsForDate(d),
+    })
+  }
+  return out
+}
+
+export const availableSlots: AvailabilityDay[] = buildAvailability(14, DEMO_TODAY)
+
+const KO_WEEKDAY_SHORT = ["일", "월", "화", "수", "목", "금", "토"]
+const KO_WEEKDAY_LONG = [
+  "일요일",
+  "월요일",
+  "화요일",
+  "수요일",
+  "목요일",
+  "금요일",
+  "토요일",
+]
+
+export function formatDateKorean(date: Date): string {
+  return `${date.getMonth() + 1}월 ${date.getDate()}일 (${KO_WEEKDAY_SHORT[date.getDay()]})`
+}
+
+export function formatDateKoreanFull(date: Date): string {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${KO_WEEKDAY_LONG[date.getDay()]})`
+}
+
+function periodHour(t: string): { period: "오전" | "오후"; hour: number } {
+  const [hStr] = t.split(":")
+  const h = Number(hStr)
+  const period: "오전" | "오후" = h < 12 ? "오전" : "오후"
+  const hour = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return { period, hour }
+}
+
+export function formatTimeRange(slot: string): string {
+  const [start, end] = slot.split("-")
+  if (!start || !end) return slot
+  const s = periodHour(start)
+  const e = periodHour(end)
+  if (s.period === e.period) {
+    return `${s.period} ${s.hour}:00 - ${e.hour}:00`
+  }
+  return `${s.period} ${s.hour}:00 - ${e.period} ${e.hour}:00`
+}
+
+export function findAvailabilityDay(
+  dateKey: string
+): AvailabilityDay | undefined {
+  return availableSlots.find((d) => d.date === dateKey)
+}
+
+export type TimeSlotKind = "asap" | "tomorrow_am" | "tomorrow_pm" | "custom"
+
+export interface TimeDisplay {
+  primary: string
+  secondary: string
+  isScheduled: boolean
+}
+
+export function buildTimeDisplay(
+  timeSlot: string | null,
+  timeDate?: string | null,
+  timeRange?: string | null
+): TimeDisplay | null {
+  if (!timeSlot) return null
+  switch (timeSlot) {
+    case "asap":
+      return {
+        primary: "가능한 빨리",
+        secondary: "오늘 16:00 - 18:00 도착 예정",
+        isScheduled: false,
+      }
+    case "tomorrow_am":
+      return {
+        primary: "내일 오전",
+        secondary: "09:00 - 12:00 도착 예정",
+        isScheduled: false,
+      }
+    case "tomorrow_pm":
+      return {
+        primary: "내일 오후",
+        secondary: "14:00 - 18:00 도착 예정",
+        isScheduled: false,
+      }
+    case "custom": {
+      if (!timeDate || !timeRange) {
+        return {
+          primary: "사전 예약",
+          secondary: "",
+          isScheduled: true,
+        }
+      }
+      const day = findAvailabilityDay(timeDate)
+      const dateObj = day?.dateObj ?? new Date(timeDate)
+      return {
+        primary: formatDateKoreanFull(dateObj),
+        secondary: formatTimeRange(timeRange),
+        isScheduled: true,
+      }
+    }
+    default:
+      return null
+  }
+}

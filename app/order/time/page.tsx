@@ -3,7 +3,15 @@
 import { Suspense, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AnimatePresence, motion } from "framer-motion"
-import { ChevronDown } from "lucide-react"
+import { DatePicker } from "@/components/order/DatePicker"
+import { TimeSlotPicker } from "@/components/order/TimeSlotPicker"
+import { SelectedDateTime } from "@/components/order/SelectedDateTime"
+import {
+  availableSlots,
+  findAvailabilityDay,
+  formatDateKorean,
+  formatTimeRange,
+} from "@/lib/mock-data"
 
 interface TimeSlot {
   id: string
@@ -39,52 +47,31 @@ const QUICK_SLOTS: TimeSlot[] = [
   },
 ]
 
-const TIME_RANGES = [
-  "09:00–11:00",
-  "11:00–13:00",
-  "14:00–16:00",
-  "16:00–18:00",
-  "18:00–20:00",
-]
-
-const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const
-
-interface DateOption {
-  value: string
-  label: string
-}
-
-function buildDateOptions(): DateOption[] {
-  const out: DateOption[] = []
-  const base = new Date()
-  for (let i = 1; i <= 7; i++) {
-    const d = new Date(base)
-    d.setDate(base.getDate() + i)
-    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    const label = `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`
-    out.push({ value, label })
-  }
-  return out
-}
-
 function TimePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   const [selectedSlot, setSelectedSlot] = useState<string>("")
   const [customDate, setCustomDate] = useState<string>("")
-  const [customRange, setCustomRange] = useState<string>("")
+  const [customTime, setCustomTime] = useState<string>("")
 
-  const dateOptions = useMemo(buildDateOptions, [])
+  const selectedDay = useMemo(
+    () => (customDate ? findAvailabilityDay(customDate) : undefined),
+    [customDate]
+  )
 
   const customLabel = useMemo(() => {
-    if (!customDate || !customRange) return ""
-    const d = dateOptions.find((o) => o.value === customDate)
-    return d ? `${d.label} ${customRange}` : ""
-  }, [customDate, customRange, dateOptions])
+    if (!selectedDay || !customTime) return ""
+    return `${formatDateKorean(selectedDay.dateObj)} ${formatTimeRange(customTime)}`
+  }, [selectedDay, customTime])
 
   const canProceed =
     selectedSlot !== "" && (selectedSlot !== "custom" || customLabel !== "")
+
+  const onPickDate = (key: string) => {
+    setCustomDate(key)
+    setCustomTime("")
+  }
 
   const onNext = () => {
     if (!canProceed) return
@@ -98,7 +85,10 @@ function TimePageInner() {
     params.set("timeLabel", display)
     if (selectedSlot === "custom") {
       params.set("timeDate", customDate)
-      params.set("timeRange", customRange)
+      params.set("timeRange", customTime)
+    } else {
+      params.delete("timeDate")
+      params.delete("timeRange")
     }
     router.push(`/order/access?${params.toString()}`)
   }
@@ -153,40 +143,47 @@ function TimePageInner() {
             transition={{ duration: 0.25, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="rounded-xl bg-gray-50 p-4">
-              <div className="mb-3">
-                <label className="mb-1.5 block text-xs font-semibold text-gray-700">
-                  날짜
-                </label>
-                <SelectField
-                  value={customDate}
-                  onChange={setCustomDate}
-                  placeholder="날짜를 선택하세요"
-                >
-                  {dateOptions.map((d) => (
-                    <option key={d.value} value={d.value}>
-                      {d.label}
-                    </option>
-                  ))}
-                </SelectField>
-              </div>
+            <div className="space-y-5 rounded-xl bg-gray-50 p-4">
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-gray-700">
-                  시간
-                </label>
-                <SelectField
-                  value={customRange}
-                  onChange={setCustomRange}
-                  placeholder="시간대를 선택하세요"
-                  disabled={!customDate}
-                >
-                  {TIME_RANGES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </SelectField>
+                <p className="mb-1 text-sm font-bold text-gray-900">
+                  원하는 날짜와 시간을 선택해주세요
+                </p>
+                <p className="text-xs text-gray-500">
+                  오늘부터 14일 이내 예약 가능
+                </p>
               </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold text-gray-700">
+                  날짜
+                </p>
+                <DatePicker
+                  days={availableSlots}
+                  selected={customDate}
+                  onSelect={onPickDate}
+                />
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold text-gray-700">
+                  시간대
+                </p>
+                <TimeSlotPicker
+                  slots={selectedDay?.slots ?? null}
+                  selected={customTime}
+                  onSelect={setCustomTime}
+                />
+              </div>
+
+              <AnimatePresence>
+                {selectedDay && customTime && (
+                  <SelectedDateTime
+                    key={`${customDate}-${customTime}`}
+                    date={selectedDay.dateObj}
+                    time={customTime}
+                  />
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
         )}
@@ -204,39 +201,6 @@ function TimePageInner() {
         </button>
       </div>
     </motion.div>
-  )
-}
-
-function SelectField({
-  value,
-  onChange,
-  children,
-  placeholder,
-  disabled,
-}: {
-  value: string
-  onChange: (v: string) => void
-  children: React.ReactNode
-  placeholder: string
-  disabled?: boolean
-}) {
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className="h-12 w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 pr-9 text-base font-medium text-gray-900 focus:border-blue-800 focus:outline-none disabled:bg-gray-100 disabled:text-gray-400"
-      >
-        <option value="" disabled>
-          {placeholder}
-        </option>
-        {children}
-      </select>
-      <ChevronDown
-        className={`pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 ${disabled ? "text-gray-300" : "text-gray-500"}`}
-      />
-    </div>
   )
 }
 

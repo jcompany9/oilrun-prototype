@@ -137,7 +137,8 @@ function DesktopSidebar({ pathname }: { pathname: string }) {
     <aside className="hidden w-60 shrink-0 flex-col border-r border-gray-200 bg-white lg:flex">
       <Link
         href="/"
-        className="flex h-14 items-center gap-2 border-b border-gray-200 px-5 transition-opacity hover:opacity-80"
+        title="랜딩 페이지로"
+        className="flex h-14 items-center gap-2 border-b border-gray-200 px-5 transition-colors hover:bg-gray-50"
       >
         <span
           className="text-xl font-extrabold tracking-tight"
@@ -149,8 +150,11 @@ function DesktopSidebar({ pathname }: { pathname: string }) {
           Admin
         </span>
       </Link>
-      <NavList pathname={pathname} />
-      <div className="mt-auto border-t border-gray-200 p-3">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <NavList pathname={pathname} />
+        <PrototypeNav />
+      </div>
+      <div className="border-t border-gray-200 p-3">
         <div className="flex items-center gap-3 rounded-lg bg-gray-50 p-3">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
@@ -177,6 +181,40 @@ function DesktopSidebar({ pathname }: { pathname: string }) {
         </div>
       </div>
     </aside>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────
+// 시연용 프로토타입 네비게이션 — 본격 운영 시엔 이 섹션을 숨기거나 제거하세요.
+// ───────────────────────────────────────────────────────────────
+const PROTOTYPE_LINKS = [
+  { href: "/", emoji: "🏠", label: "랜딩 페이지" },
+  { href: "/order/start", emoji: "🚗", label: "차주 화면" },
+  { href: "/shop", emoji: "🔧", label: "정비소 화면" },
+  { href: "/order/history", emoji: "📋", label: "예약내역" },
+] as const
+
+function PrototypeNav({ onNavigate }: { onNavigate?: () => void } = {}) {
+  return (
+    <div className="mt-2 border-t border-gray-200 px-3 pt-3 pb-2">
+      <p className="mb-1.5 px-3 text-[10px] font-bold tracking-wider text-gray-400 uppercase">
+        프로토타입 둘러보기
+      </p>
+      <ul className="flex flex-col gap-0.5">
+        {PROTOTYPE_LINKS.map((link) => (
+          <li key={link.href}>
+            <Link
+              href={link.href}
+              onClick={onNavigate}
+              className="flex h-9 items-center gap-3 rounded-lg px-3 text-xs text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            >
+              <span className="text-sm leading-none">{link.emoji}</span>
+              <span>{link.label}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -210,12 +248,21 @@ function MobileSidebar({
             transition={{ type: "tween", duration: 0.2 }}
           >
             <div className="flex h-14 items-center justify-between border-b border-gray-200 px-4">
-              <span
-                className="text-xl font-extrabold tracking-tight"
-                style={{ color: "#1E40AF" }}
+              <Link
+                href="/"
+                onClick={onClose}
+                className="inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-gray-50"
               >
-                OilRun
-              </span>
+                <span
+                  className="text-xl font-extrabold tracking-tight"
+                  style={{ color: "#1E40AF" }}
+                >
+                  OilRun
+                </span>
+                <span className="text-[10px] font-semibold tracking-wider text-gray-400 uppercase">
+                  Admin
+                </span>
+              </Link>
               <button
                 type="button"
                 onClick={onClose}
@@ -225,7 +272,10 @@ function MobileSidebar({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <NavList pathname={pathname} onNavigate={onClose} />
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <NavList pathname={pathname} onNavigate={onClose} />
+              <PrototypeNav onNavigate={onClose} />
+            </div>
           </motion.aside>
         </>
       )}

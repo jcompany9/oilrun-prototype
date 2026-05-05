@@ -4,6 +4,7 @@ import { Suspense, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AnimatePresence, motion } from "framer-motion"
 import {
+  CalendarClock,
   Car,
   Clock,
   Droplet,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react"
 import {
   addOptions,
+  buildTimeDisplay,
   getAccessOption,
   menus,
   resolveVehicleFromParams,
@@ -48,7 +50,11 @@ function PaymentPageInner() {
   }, [searchParams])
   const location = searchParams.get("location") ?? ""
   const locationDetail = searchParams.get("locationDetail") ?? ""
-  const timeLabel = searchParams.get("timeLabel") ?? ""
+  const timeDisplay = buildTimeDisplay(
+    searchParams.get("timeSlot"),
+    searchParams.get("timeDate"),
+    searchParams.get("timeRange")
+  )
   const accessOption = getAccessOption(searchParams.get("access"))
 
   const total =
@@ -148,8 +154,23 @@ function PaymentPageInner() {
             }
           />
           <SummaryRow
-            icon={<Clock className="h-4 w-4" style={{ color: "#1E40AF" }} />}
-            text={timeLabel || "시간 미지정"}
+            icon={
+              timeDisplay?.isScheduled ? (
+                <CalendarClock
+                  className="h-4 w-4"
+                  style={{ color: "#1E40AF" }}
+                />
+              ) : (
+                <Clock className="h-4 w-4" style={{ color: "#1E40AF" }} />
+              )
+            }
+            text={
+              timeDisplay
+                ? timeDisplay.secondary
+                  ? `${timeDisplay.primary} · ${timeDisplay.secondary}`
+                  : timeDisplay.primary
+                : "시간 미지정"
+            }
           />
           {accessOption && (
             <SummaryRow
