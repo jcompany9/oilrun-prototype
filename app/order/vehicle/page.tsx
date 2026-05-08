@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AnimatePresence, motion } from "framer-motion"
-import { Car, ChevronDown, Search } from "lucide-react"
+import { Car, ChevronDown, Loader2, Search } from "lucide-react"
 import {
   buildCustomVehicle,
   recommendOil,
@@ -11,16 +11,29 @@ import {
   vehicleManufacturers,
   vehicleModelsByManufacturer,
   vehicleYearOptions,
-  vehicles,
   type FuelType,
 } from "@/lib/mock-data"
+import { isValidPlate, normalizePlate } from "@/lib/utils"
+import type { VehicleLookupResult } from "@/app/api/vehicle/lookup/route"
 
 type Mode = "search" | "matched" | "manual"
+
+interface MatchedVehicle {
+  id?: string
+  plate: string
+  model: string
+  year: number
+  fuel: FuelType
+  oilSpec: string
+}
 
 export default function VehiclePage() {
   const router = useRouter()
   const [mode, setMode] = useState<Mode>("search")
   const [plate, setPlate] = useState("")
+  const [matched, setMatched] = useState<MatchedVehicle | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
 
   const [manufacturerId, setManufacturerId] = useState("")
@@ -28,28 +41,56 @@ export default function VehiclePage() {
   const [year, setYear] = useState<number | "">("")
   const [fuel, setFuel] = useState<FuelType | "">("")
 
-  const matched = vehicles.find((v) => v.plate === plate.trim())
+  const trimmedPlate = plate.trim()
+  const plateValid = isValidPlate(trimmedPlate)
 
-  const onConfirmPlate = () => {
-    if (!plate.trim()) return
-    if (matched) {
-      setMode("matched")
+  const onConfirmPlate = async () => {
+    if (!trimmedPlate || loading) return
+    if (!plateValid) {
+      setErrorMessage("차량번호 형식이 올바르지 않습니다 (예: 12가3456)")
       setNotFound(false)
-    } else {
-      setNotFound(true)
-      setMode("search")
+      return
+    }
+    setErrorMessage(null)
+    setNotFound(false)
+    setLoading(true)
+    try {
+      const res = await fetch("/api/vehicle/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plate: normalizePlate(trimmedPlate) }),
+      })
+      const data = (await res.json()) as VehicleLookupResult
+      if (data.found) {
+        setMatched(data.vehicle)
+        setMode("matched")
+      } else if (data.reason === "not_found") {
+        setNotFound(true)
+        setMode("search")
+      } else {
+        setErrorMessage(data.message)
+        setMode("search")
+      }
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "조회 중 오류가 발생했습니다"
+      )
+    } finally {
+      setLoading(false)
     }
   }
 
   const onChangePlate = (value: string) => {
     setPlate(value)
     if (notFound) setNotFound(false)
+    if (errorMessage) setErrorMessage(null)
     if (mode === "matched") setMode("search")
   }
 
   const startManual = () => {
     setMode("manual")
     setNotFound(false)
+    setErrorMessage(null)
   }
 
   const backToSearch = () => {
@@ -63,6 +104,7 @@ export default function VehiclePage() {
   const resetMatched = () => {
     setMode("search")
     setPlate("")
+    setMatched(null)
     setNotFound(false)
   }
 
@@ -80,7 +122,19 @@ export default function VehiclePage() {
 
   const goNextWithMatched = () => {
     if (!matched) return
-    router.push(`/order/menu?vehicleId=${matched.id}`)
+    if (matched.id) {
+      router.push(`/order/menu?vehicleId=${matched.id}`)
+      return
+    }
+    const params = new URLSearchParams({
+      vehicleId: "custom",
+      model: matched.model,
+      year: String(matched.year),
+      fuel: matched.fuel,
+      oilSpec: matched.oilSpec,
+      plate: matched.plate,
+    })
+    router.push(`/order/menu?${params.toString()}`)
   }
 
   const goNextWithCustom = () => {
@@ -89,7 +143,7 @@ export default function VehiclePage() {
       model,
       year: Number(year),
       fuel: fuel as FuelType,
-      plate: plate.trim(),
+      plate: trimmedPlate,
     })
     const params = new URLSearchParams({
       vehicleId: "custom",
@@ -115,22 +169,49 @@ export default function VehiclePage() {
         value={plate}
         onChange={(e) => onChangePlate(e.target.value)}
         placeholder="12가3456"
-        disabled={mode === "matched" || mode === "manual"}
+        disabled={mode === "matched" || mode === "manual" || loading}
         inputMode="text"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && plateValid && !loading) {
+            onConfirmPlate()
+          }
+        }}
         className="mb-3 h-16 w-full rounded-xl border-2 border-gray-200 bg-white px-4 text-center text-2xl font-bold tracking-wide text-gray-900 placeholder:font-medium placeholder:text-gray-300 focus:border-blue-800 focus:outline-none disabled:bg-gray-50 disabled:text-gray-700"
       />
 
-      {mode === "search" && !notFound && (
+      {mode === "search" && !notFound && !errorMessage && (
         <button
           type="button"
           onClick={onConfirmPlate}
-          disabled={!plate.trim()}
-          className="h-12 w-full rounded-xl text-base font-semibold text-white transition-opacity disabled:opacity-40"
+          disabled={!plateValid || loading}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-semibold text-white transition-opacity disabled:opacity-40"
           style={{ backgroundColor: "#1E40AF" }}
         >
-          확인
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              조회 중…
+            </>
+          ) : (
+            "확인"
+          )}
         </button>
       )}
+
+      <AnimatePresence>
+        {errorMessage && mode === "search" && (
+          <motion.div
+            key="error"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="rounded-xl bg-red-50 p-4 text-sm text-red-900"
+          >
+            {errorMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {notFound && mode === "search" && (

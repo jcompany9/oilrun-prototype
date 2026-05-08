@@ -38,3 +38,13 @@ export function formatTime(date: Date): string {
   const displayMinute = minutes.toString().padStart(2, "0")
   return `${period} ${displayHour}:${displayMinute}`
 }
+
+const PLATE_REGEX = /^[0-9]{2,3}[가-힣][0-9]{4}$/
+
+export function normalizePlate(input: string): string {
+  return input.replace(/\s+/g, "").trim()
+}
+
+export function isValidPlate(plate: string): boolean {
+  return PLATE_REGEX.test(normalizePlate(plate))
+}

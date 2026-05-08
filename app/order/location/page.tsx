@@ -1,44 +1,136 @@
 "use client"
 
-import { Suspense, useState } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AnimatePresence, motion } from "framer-motion"
-import { MapPin, Search } from "lucide-react"
-
-const MOCK_CURRENT_ADDRESS = "서울시 강남구 역삼동 123-45"
-
-const MOCK_SEARCH_RESULTS = [
-  "서울시 강남구 역삼동 123-45",
-  "서울시 강남구 삼성동 88-2",
-  "서울시 강남구 청담동 45-1",
-  "서울시 서초구 반포동 67-8",
-  "서울시 송파구 잠실동 200-12",
-]
+import { Loader2, MapPin, Search } from "lucide-react"
+import { KakaoMap } from "@/components/order/KakaoMap"
+import type {
+  AddressSearchError,
+  AddressSearchHit,
+  AddressSearchResponse,
+} from "@/app/api/kakao/search-address/route"
+import type {
+  ReverseGeocodeError,
+  ReverseGeocodeResponse,
+} from "@/app/api/kakao/reverse-geocode/route"
 
 function LocationPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   const [address, setAddress] = useState("")
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [detail, setDetail] = useState("")
   const [query, setQuery] = useState("")
+  const [results, setResults] = useState<AddressSearchHit[]>([])
   const [showResults, setShowResults] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [locating, setLocating] = useState(false)
+
+  const debounceRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([])
+      setShowResults(false)
+      setSearchError(null)
+      return
+    }
+    if (debounceRef.current) window.clearTimeout(debounceRef.current)
+    debounceRef.current = window.setTimeout(() => {
+      runSearch(query.trim())
+    }, 250)
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current)
+    }
+  }, [query])
+
+  const runSearch = async (q: string) => {
+    setSearching(true)
+    setSearchError(null)
+    try {
+      const res = await fetch(
+        `/api/kakao/search-address?q=${encodeURIComponent(q)}`
+      )
+      const data = (await res.json()) as
+        | AddressSearchResponse
+        | AddressSearchError
+      if (!data.ok) {
+        setResults([])
+        setSearchError(data.message)
+      } else {
+        setResults(data.results)
+      }
+      setShowResults(true)
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "검색 실패")
+      setResults([])
+      setShowResults(true)
+    } finally {
+      setSearching(false)
+    }
+  }
 
   const useCurrentLocation = () => {
-    setAddress(MOCK_CURRENT_ADDRESS)
-    setQuery("")
-    setShowResults(false)
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setSearchError("이 기기에서는 현 위치를 사용할 수 없습니다")
+      return
+    }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords
+        setCoords({ lat: latitude, lng: longitude })
+        try {
+          const res = await fetch(
+            `/api/kakao/reverse-geocode?lat=${latitude}&lng=${longitude}`
+          )
+          const data = (await res.json()) as
+            | ReverseGeocodeResponse
+            | ReverseGeocodeError
+          if (data.ok) {
+            setAddress(data.address)
+            setQuery("")
+            setShowResults(false)
+          } else {
+            setSearchError(data.message)
+          }
+        } catch (err) {
+          setSearchError(err instanceof Error ? err.message : "주소 조회 실패")
+        } finally {
+          setLocating(false)
+        }
+      },
+      (err) => {
+        setLocating(false)
+        setSearchError(`위치 권한 오류: ${err.message}`)
+      },
+      { enableHighAccuracy: true, timeout: 10_000 }
+    )
   }
 
-  const onSearch = () => {
-    if (!query.trim()) return
-    setShowResults(true)
-  }
-
-  const selectResult = (a: string) => {
-    setAddress(a)
+  const selectResult = (hit: AddressSearchHit) => {
+    setAddress(hit.label)
+    setCoords({ lat: hit.lat, lng: hit.lng })
     setShowResults(false)
     setQuery("")
+  }
+
+  const onPickFromMap = async (next: { lat: number; lng: number }) => {
+    setCoords(next)
+    try {
+      const res = await fetch(
+        `/api/kakao/reverse-geocode?lat=${next.lat}&lng=${next.lng}`
+      )
+      const data = (await res.json()) as
+        | ReverseGeocodeResponse
+        | ReverseGeocodeError
+      if (data.ok) setAddress(data.address)
+    } catch {
+      // 주소 조회 실패해도 좌표는 유지
+    }
   }
 
   const onNext = () => {
@@ -46,12 +138,12 @@ function LocationPageInner() {
     const params = new URLSearchParams(searchParams.toString())
     params.set("location", address)
     if (detail.trim()) params.set("locationDetail", detail.trim())
+    if (coords) {
+      params.set("lat", String(coords.lat))
+      params.set("lng", String(coords.lng))
+    }
     router.push(`/order/time?${params.toString()}`)
   }
-
-  const filteredResults = query.trim()
-    ? MOCK_SEARCH_RESULTS.filter((a) => a.includes(query.trim()))
-    : MOCK_SEARCH_RESULTS
 
   return (
     <motion.div
@@ -65,63 +157,64 @@ function LocationPageInner() {
         정비사가 방문할 위치를 알려주세요
       </p>
 
-      <div
-        className="relative mb-5 flex h-64 items-center justify-center overflow-hidden rounded-xl bg-gray-100"
-        style={{
-          backgroundImage:
-            "linear-gradient(to right, #E5E7EB 1px, transparent 1px), linear-gradient(to bottom, #E5E7EB 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
-        }}
-      >
-        <div className="flex flex-col items-center gap-2 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-sm">
-            <MapPin
-              className="h-7 w-7"
-              style={{ color: "#1E40AF" }}
-              strokeWidth={2}
-              fill="#DBEAFE"
-            />
-          </div>
-          <p className="text-sm font-medium text-gray-500">
-            지도 영역 (카카오맵 연동 예정)
-          </p>
-        </div>
-      </div>
+      <KakaoMap
+        lat={coords?.lat}
+        lng={coords?.lng}
+        onPick={onPickFromMap}
+        className="mb-5 h-64 w-full"
+      />
 
       <button
         type="button"
         onClick={useCurrentLocation}
-        className="mb-5 flex h-14 w-full items-center justify-center gap-2 rounded-xl border-2 bg-white text-base font-semibold transition-colors hover:bg-blue-50"
+        disabled={locating}
+        className="mb-5 flex h-14 w-full items-center justify-center gap-2 rounded-xl border-2 bg-white text-base font-semibold transition-colors hover:bg-blue-50 disabled:opacity-50"
         style={{ borderColor: "#1E40AF", color: "#1E40AF" }}
       >
-        <MapPin className="h-5 w-5" />현 위치 사용하기
+        {locating ? (
+          <Loader2 className="h-5 w-5 animate-spin" />
+        ) : (
+          <MapPin className="h-5 w-5" />
+        )}
+        {locating ? "위치 확인 중…" : "현 위치 사용하기"}
       </button>
 
       <div className="mb-3 flex items-center gap-2">
-        <div className="flex-1">
+        <div className="relative flex-1">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault()
-                onSearch()
-              }
-            }}
-            placeholder="도로명 주소를 입력하세요"
-            className="h-12 w-full rounded-xl border border-gray-200 bg-white px-4 text-base text-gray-900 placeholder:text-gray-400 focus:border-blue-800 focus:outline-none"
+            placeholder="도로명 주소나 장소 이름"
+            className="h-12 w-full rounded-xl border border-gray-200 bg-white px-4 pr-10 text-base text-gray-900 placeholder:text-gray-400 focus:border-blue-800 focus:outline-none"
           />
+          {searching && (
+            <Loader2 className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" />
+          )}
         </div>
         <button
           type="button"
-          onClick={onSearch}
-          disabled={!query.trim()}
+          onClick={() => query.trim() && runSearch(query.trim())}
+          disabled={!query.trim() || searching}
           className="flex h-12 items-center justify-center gap-1 rounded-xl bg-gray-900 px-4 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
         >
           <Search className="h-4 w-4" />
           검색
         </button>
       </div>
+
+      <AnimatePresence>
+        {searchError && (
+          <motion.div
+            key="err"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-900"
+          >
+            {searchError}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showResults && (
@@ -132,20 +225,27 @@ function LocationPageInner() {
             transition={{ duration: 0.2 }}
             className="mb-4 flex flex-col gap-1 overflow-hidden rounded-xl border border-gray-200 bg-white"
           >
-            {filteredResults.length === 0 ? (
+            {results.length === 0 ? (
               <li className="px-4 py-3 text-sm text-gray-500">
                 검색 결과가 없어요
               </li>
             ) : (
-              filteredResults.map((a) => (
-                <li key={a}>
+              results.map((hit, i) => (
+                <li key={`${hit.label}-${i}`}>
                   <button
                     type="button"
-                    onClick={() => selectResult(a)}
-                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-gray-800 transition-colors hover:bg-gray-50"
+                    onClick={() => selectResult(hit)}
+                    className="flex w-full items-start gap-2 px-4 py-3 text-left transition-colors hover:bg-gray-50"
                   >
-                    <MapPin className="h-4 w-4 shrink-0 text-gray-400" />
-                    {a}
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                    <span className="flex flex-col">
+                      <span className="text-sm text-gray-900">{hit.label}</span>
+                      {hit.detail && (
+                        <span className="text-xs text-gray-500">
+                          {hit.detail}
+                        </span>
+                      )}
+                    </span>
                   </button>
                 </li>
               ))
