@@ -27,8 +27,10 @@ import {
 import { formatKRW } from "@/lib/utils"
 
 export default function RevenuePage() {
-  const monthTotal = saasLocations.reduce((s, l) => s + l.monthRevenue, 0)
-  const todayTotal = saasLocations.reduce((s, l) => s + l.todayRevenue, 0)
+  // 1 Shop = 1 호점. 본점만 사용.
+  const main = saasLocations[0]
+  const monthTotal = main?.monthRevenue ?? 0
+  const todayTotal = main?.todayRevenue ?? 0
   const channelMonthTotal = channelRevenueShare.reduce((s, c) => s + c.monthRevenue, 0)
   const totalBookings = channelRevenueShare.reduce((s, c) => s + c.bookings, 0)
   const avgPerBooking = Math.round(channelMonthTotal / totalBookings)
@@ -37,7 +39,7 @@ export default function RevenuePage() {
     <div className="flex h-full flex-col">
       <header className="shrink-0 border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
         <h1 className="text-xl font-extrabold text-gray-900">매출 대시보드</h1>
-        <p className="mt-0.5 text-xs text-gray-500">2026년 5월 · 본점 + 2호점 통합</p>
+        <p className="mt-0.5 text-xs text-gray-500">2026년 5월</p>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -65,7 +67,7 @@ export default function RevenuePage() {
 
         <section className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm lg:col-span-2">
-            <h2 className="text-sm font-bold text-gray-900">지점별 일 매출 추이 (지난 7일)</h2>
+            <h2 className="text-sm font-bold text-gray-900">일 매출 추이 (지난 7일)</h2>
             <div className="mt-3 h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={locationDailyRevenue}>
@@ -83,31 +85,13 @@ export default function RevenuePage() {
                   <Line
                     type="monotone"
                     dataKey="main"
-                    name="본점"
+                    name="매출"
                     stroke="#1E40AF"
-                    strokeWidth={2.5}
-                    dot={{ r: 4 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="branch1"
-                    name="2호점"
-                    stroke="#F97316"
                     strokeWidth={2.5}
                     dot={{ r: 4 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
-            </div>
-            <div className="mt-3 flex items-center justify-center gap-5 text-xs">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-700" />
-                본점
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-2.5 w-2.5 rounded-full bg-orange-500" />
-                2호점
-              </span>
             </div>
           </div>
 

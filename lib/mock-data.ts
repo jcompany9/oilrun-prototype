@@ -1130,6 +1130,7 @@ export interface SaasJob {
   customerPhone: string
   vehiclePlate: string
   vehicleModel: string
+  date?: string // YYYY-MM-DD; 없으면 오늘로 처리
   startHour: number
   startMinute: number
   durationMin: number
@@ -1180,28 +1181,28 @@ const buildJob = (
 // 본점 + 2호점 today 일정 (2026-05-05 화요일)
 export const saasJobs: SaasJob[] = [
   // === 본점 ===
-  buildJob("J-001", "kakao", "oil", "김민수", "12가3456", "카니발 4세대", 9, 0, 45, "s2", "main", "completed", 89000),
+  buildJob("J-001", "kakao", "oil", "김민수", "12가3456", "카니발 4세대", 9, 0, 30, "s2", "main", "completed", 89000),
   buildJob("J-002", "naver", "blackbox", "이서연", "34나5678", "쏘나타 DN8", 9, 30, 90, "s3", "main", "completed", 350000),
   buildJob("J-003", "kakao", "inspection", "박지호", "56다7890", "아반떼 CN7", 10, 0, 60, "s4", "main", "completed", 50000),
   buildJob("J-004", "phone", "tire", "최예린", "78라9012", "쏘렌토 MQ4", 11, 0, 60, "s2", "main", "completed", 280000),
   buildJob("J-005", "oilrun", "house_call", "정도윤", "90마1234", "모닝 JA", 11, 0, 60, "s3", "main", "completed", 89000, { isHouseCall: true, address: "강남구 삼성동 88-2" }),
-  buildJob("J-006", "kakao", "oil", "한지우", "12가7788", "그랜저 IG", 13, 0, 45, "s4", "main", "in_progress", 129000),
+  buildJob("J-006", "kakao", "oil", "한지우", "12가7788", "그랜저 IG", 13, 0, 30, "s4", "main", "in_progress", 129000),
   buildJob("J-007", "self", "battery", "강민준", "23나4455", "투싼 NX4", 13, 30, 30, "s2", "main", "in_progress", 150000),
   buildJob("J-008", "youtube", "blackbox", "송지유", "45다6677", "K5 DL3", 14, 0, 90, "s3", "main", "scheduled", 350000, { videoRef: "video-002" }),
   buildJob("J-009", "oilrun", "house_call", "윤재민", "67라8899", "팰리세이드", 14, 30, 60, "s4", "main", "scheduled", 99000, { isHouseCall: true, address: "서초구 반포동 67-8" }),
-  buildJob("J-010", "phone", "oil", "조하늘", "89마9900", "셀토스", 15, 0, 45, "s2", "main", "scheduled", 89000),
+  buildJob("J-010", "phone", "oil", "조하늘", "89마9900", "셀토스", 15, 0, 30, "s2", "main", "scheduled", 89000),
   buildJob("J-011", "phone", "tire", "임수아", "01바1122", "스파크", 16, 0, 60, "s3", "main", "scheduled", 240000),
   buildJob("J-012", "youtube", "inspection", "노현우", "23사3344", "EV6", 16, 30, 60, "s4", "main", "scheduled", 60000, { videoRef: "video-005" }),
-  buildJob("J-013", "kakao", "oil", "백나연", "45아5566", "G80", 17, 0, 45, "s2", "main", "scheduled", 169000),
+  buildJob("J-013", "kakao", "oil", "백나연", "45아5566", "G80", 17, 0, 30, "s2", "main", "scheduled", 169000),
   buildJob("J-014", "oilrun", "house_call", "구하준", "67자7788", "스타리아", 17, 30, 60, "s3", "main", "scheduled", 89000, { isHouseCall: true, address: "강남구 청담동 45-12" }),
 
   // === 2호점 ===
-  buildJob("J-015", "kakao", "oil", "장민서", "11가1234", "K3", 9, 30, 45, "s6", "branch1", "completed", 89000),
+  buildJob("J-015", "kakao", "oil", "장민서", "11가1234", "K3", 9, 30, 30, "s6", "branch1", "completed", 89000),
   buildJob("J-016", "naver", "blackbox", "오시현", "22나2345", "쏘나타 DN8", 10, 30, 90, "s6", "branch1", "completed", 350000),
   buildJob("J-017", "self", "inspection", "양도윤", "33다3456", "투싼 NX4", 11, 30, 60, "s7", "branch1", "completed", 60000),
   buildJob("J-018", "phone", "tire", "권유나", "44라4567", "스포티지", 13, 0, 60, "s6", "branch1", "in_progress", 380000),
   buildJob("J-019", "self", "battery", "남예준", "55마5678", "QM6", 14, 30, 30, "s7", "branch1", "scheduled", 180000),
-  buildJob("J-020", "youtube", "oil", "유시우", "66바6789", "쏘나타 DN8", 15, 30, 45, "s6", "branch1", "scheduled", 89000, { videoRef: "video-001" }),
+  buildJob("J-020", "youtube", "oil", "유시우", "66바6789", "쏘나타 DN8", 15, 30, 30, "s6", "branch1", "scheduled", 89000, { videoRef: "video-001" }),
   buildJob("J-021", "oilrun", "house_call", "표지안", "77사7890", "코나", 16, 30, 60, "s6", "branch1", "scheduled", 89000, { isHouseCall: true, address: "송파구 잠실동 200-12" }),
 ]
 
@@ -1506,6 +1507,7 @@ export interface BookingMenu {
   prices: Record<CarCategory, number | null>
   durationMin: number
   recommended?: boolean
+  isHouseCall?: boolean
 }
 
 export const bookingMenus: BookingMenu[] = [
@@ -1525,6 +1527,15 @@ export const bookingMenus: BookingMenu[] = [
     description: "저점도, 신차·연비 향상",
     prices: { compact: 119000, midsize: 129000, suv: 149000, luxury: 169000, ev: null },
     durationMin: 30,
+  },
+  {
+    id: "bm-house",
+    jobType: "oil",
+    name: "출장 엔진오일 교환",
+    description: "기사가 직접 방문 · 주차장·자택·사무실 어디든 (기본 5W-30)",
+    prices: { compact: 99000, midsize: 109000, suv: 119000, luxury: 139000, ev: null },
+    durationMin: 60,
+    isHouseCall: true,
   },
   {
     id: "bm3",
@@ -1589,10 +1600,6 @@ export interface SaasPublicShop {
   address: string
   phone: string
   hours: string
-  ratingAvg: number
-  ratingCount: number
-  servicesCount: number
-  yearsInBusiness: number
   hasCreatorModule: boolean
   channelName?: string
   channelHandle?: string
@@ -1610,10 +1617,6 @@ export const saasPublicShops: SaasPublicShop[] = [
     address: "서울시 강남구 역삼동 123-45",
     phone: "02-123-4567",
     hours: "평일 09:00–19:00 / 토 09:00–14:00 / 일·공휴일 휴무",
-    ratingAvg: 4.9,
-    ratingCount: 1284,
-    servicesCount: 8420,
-    yearsInBusiness: 30,
     hasCreatorModule: true,
     channelName: "형제카센터TV",
     channelHandle: "@hyungje_tv",

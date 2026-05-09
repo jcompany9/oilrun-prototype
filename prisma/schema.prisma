@@ -1,0 +1,1192 @@
+// =============================================================
+// OilRun SaaS — Prisma schema v2
+// 정비소 운영 SaaS (Core + Module). 1호 정비소 = Creator design partner
+//
+// 멀티테넌트:
+//   - Tenant root = Shop. 모든 도메인 테이블에 shopId 보유
+//   - 격리 = Prisma middleware로 모든 query에 shopId 자동 주입
+//   - Supabase RLS는 보조 (auth.jwt() 의존 X — 이전 가능성 보존)
+//
+// 보안:
+//   - 개인정보(휴대폰·차량번호·계좌번호)는 pgcrypto로 암호화 저장(Bytes)
+//   - 검색은 별도 hash 컬럼(SHA-256)
+//   - 결제정보는 PG 토큰만(빌링키), 카드정보 미저장
+//
+// 무결성:
+//   - Booking·Job·Invoice는 차량·고객·메뉴·주소 모두 snapshot 컬럼 보유
+//   - 가격은 effectiveFrom 이력 보존
+//
+// =============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// Prisma 7: connection URL은 prisma.config.ts에서 driver adapter로 설정
+datasource db {
+  provider   = "postgresql"
+  extensions = [pgcrypto, citext]
+}
+
+// =============================================================
+// SECTION 1: AUTH (Auth.js + 본인인증)
+// =============================================================
+
+enum UserStatus {
+  ACTIVE
+  DORMANT
+  SUSPENDED
+  DELETED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+
+  // ── 우리 확장 ──
+  phoneCipher Bytes? // pgp_sym_encrypt(phone, key)
+  phoneHash   String?    @unique // sha256(phone) — 검색용
+  status      UserStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  accounts              Account[]
+  sessions              Session[]
+  staffMemberships      Staff[]
+  ownedShops            Shop[]                 @relation("ShopOwner")
+  identityVerifications IdentityVerification[]
+  auditLogs             AuditLog[]             @relation("AuditActor")
+
+  @@index([phoneHash])
+  @@index([status])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String // phone or email
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// 본인인증 (NICE) — User와 분리해서 보관 (CI/DI는 한번 받으면 영속)
+model IdentityVerification {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  provider   String // NICE | KCB
+  ciHash     String // 본인인증 CI hash
+  diHash     String?
+  birthYmd   String // YYYYMMDD
+  gender     String // M | F
+  rawPayload Bytes // 암호화 저장
+  verifiedAt DateTime @default(now())
+
+  @@index([ciHash])
+  @@index([userId])
+}
+
+// =============================================================
+// SECTION 2: TENANT (Shop, Location, Staff)
+// =============================================================
+
+enum ShopState {
+  ONBOARDING
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+model Shop {
+  id          String @id @default(cuid())
+  slug        String @unique // 부킹 페이지 URL `/book/[slug]`
+  name        String
+  ownerUserId String
+  owner       User   @relation("ShopOwner", fields: [ownerUserId], references: [id])
+
+  businessNumber String @unique // 사업자등록번호
+  representative String // 대표자명
+  contactPhone   String
+
+  state ShopState @default(ONBOARDING)
+
+  // 정산 계좌 (암호화)
+  bankCode          String?
+  bankAccountCipher Bytes?
+  bankHolder        String?
+
+  kakaoChannelId String? // 카카오 비즈채널 (옵션)
+
+  appliedAt   DateTime  @default(now())
+  approvedAt  DateTime?
+  suspendedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // ── Tenant 데이터 ──
+  locations             Location[]
+  staff                 Staff[]
+  documents             ShopDocument[]
+  customers             Customer[]
+  vehicles              Vehicle[]
+  channels              Channel[]
+  bookings              Booking[]
+  jobs                  Job[]
+  bookingMenus          BookingMenu[]
+  addOnMenus            AddOnMenu[]
+  estimates             Estimate[]
+  invoices              Invoice[]
+  taxInvoices           TaxInvoice[]
+  payments              Payment[]
+  refunds               Refund[]
+  notificationTemplates NotificationTemplate[]
+  notificationLogs      NotificationLog[]
+  reminderRules         ReminderRule[]
+  subscription          ShopSubscription?
+  creatorVideos         CreatorVideo[]
+
+  @@index([state])
+}
+
+model Location {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  name          String // "본점", "2호점"
+  isHeadquarter Boolean @default(false)
+
+  address       String
+  addressDetail String?
+  district      String // "강남구"
+  lat           Decimal @db.Decimal(10, 7)
+  lng           Decimal @db.Decimal(10, 7)
+
+  contactPhone String?
+
+  // 영업시간 — { mon: { open: "09:00", close: "18:00", closed: false }, ... }
+  // 공휴일 휴무는 별도 holidaysJson
+  businessHours Json?
+  holidaysJson  Json? // ["2026-05-13", ...]
+
+  active Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  staff    Staff[]
+  bookings Booking[]
+  jobs     Job[]
+
+  @@index([shopId])
+  @@index([shopId, active])
+}
+
+enum StaffRole {
+  OWNER // 사장님
+  DESK_MANAGER // 데스크 매니저
+  MECHANIC // 정비사
+  CS // CS
+  READ_ONLY // 조회만
+}
+
+model Staff {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  shopId            String
+  shop              Shop      @relation(fields: [shopId], references: [id])
+  primaryLocationId String?
+  primaryLocation   Location? @relation(fields: [primaryLocationId], references: [id])
+
+  displayName String // 정비소 내 표시명 (예: "박기사")
+  role        StaffRole
+
+  // 정비사 한정
+  rating Decimal? @db.Decimal(3, 2)
+  skills String[] // ['oil', 'blackbox', 'tire', ...]
+
+  active    Boolean   @default(true)
+  invitedAt DateTime  @default(now())
+  joinedAt  DateTime?
+  leftAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobAssignments JobAssignment[]
+
+  @@unique([userId, shopId])
+  @@index([shopId, role])
+  @@index([shopId, active])
+}
+
+enum ShopDocumentType {
+  BUSINESS_LICENSE // 사업자등록증
+  MECHANIC_LICENSE // 자동차정비기능사 자격증
+  INSURANCE // 영업배상책임보험증서
+  BANK_BOOK // 통장사본
+  OTHER
+}
+
+enum DocReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ShopDocument {
+  id           String           @id @default(cuid())
+  shopId       String
+  shop         Shop             @relation(fields: [shopId], references: [id])
+  type         ShopDocumentType
+  fileKey      String // S3 key (private bucket)
+  fileName     String
+  reviewStatus DocReviewStatus  @default(PENDING)
+  reviewNote   String?
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  uploadedAt   DateTime         @default(now())
+
+  @@index([shopId, type])
+}
+
+// =============================================================
+// SECTION 3: CUSTOMER & VEHICLE (Tenant-local)
+// =============================================================
+
+model Customer {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  name        String
+  phoneCipher Bytes // 암호화 저장
+  phoneHash   String // 검색용 sha256(phone)
+
+  // 알림 수신 동의
+  kakaoOptIn   Boolean   @default(false)
+  kakaoOptInAt DateTime?
+  smsOptIn     Boolean   @default(true)
+
+  notes String? // 사장님 메모
+
+  // 캐시 (재계산 가능 — 빠른 조회용)
+  totalSpent  Int       @default(0)
+  totalJobs   Int       @default(0)
+  lastVisitAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  vehicles Vehicle[]
+  bookings Booking[]
+  jobs     Job[]
+
+  @@unique([shopId, phoneHash])
+  @@index([shopId])
+  @@index([shopId, lastVisitAt])
+}
+
+enum FuelType {
+  GASOLINE
+  DIESEL
+  LPG
+  HYBRID
+  ELECTRIC
+}
+
+enum CarCategory {
+  COMPACT // 경차/소형
+  MIDSIZE // 중형
+  SUV // SUV
+  LUXURY // 대형/수입 럭셔리
+  EV // 전기차
+}
+
+// 차량은 사용자 입력 — 외부 API 미사용
+model Vehicle {
+  id         String   @id @default(cuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  // 차량번호 — 암호화 + 검색 hash + 표시용 마스킹
+  plateCipher Bytes
+  plateHash   String
+  plateMasked String // "12가****" 표시용
+
+  // 사용자 입력 (자유 문자열)
+  manufacturer String // "현대"
+  modelName    String // "쏘나타 DN8"
+  year         Int
+  fuel         FuelType
+  category     CarCategory
+  oilSpec      String? // 자동 추천 + 수동 수정
+  mileage      Int? // 누적 주행거리 (최신값 캐시)
+
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  bookings Booking[]
+  jobs     Job[]
+
+  @@unique([shopId, plateHash])
+  @@index([shopId, customerId])
+}
+
+// =============================================================
+// SECTION 4: CHANNEL & BOOKING (예약 인박스)
+// =============================================================
+
+enum ChannelType {
+  PHONE
+  KAKAO
+  NAVER
+  WEB // 자체 부킹 페이지
+  OILRUN // OilRun 마켓플레이스
+  CREATOR_VIDEO // Creator 영상 링크
+  WALK_IN // 매장 워크인
+  REFERRAL
+  OTHER
+}
+
+model Channel {
+  id     String      @id @default(cuid())
+  shopId String
+  shop   Shop        @relation(fields: [shopId], references: [id])
+  type   ChannelType
+  label  String // "형제카센터TV", "네이버 예약"
+  active Boolean     @default(true)
+  config Json? // { youtubeChannelId: "...", naverBookingId: "..." }
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+
+  @@index([shopId, type])
+}
+
+enum BookingIntent {
+  REGULAR // 정기 점검
+  WARNING_LIGHT // 경고등
+  NOISE // 이상 소리/진동
+  EMERGENCY // 긴급
+  HOUSE_CALL // 출장
+}
+
+enum BookingStatus {
+  NEW
+  CONFIRMED
+  RESCHEDULED
+  IN_JOB
+  CANCELED_BY_CUSTOMER
+  CANCELED_BY_SHOP
+  NO_SHOW
+}
+
+model Booking {
+  id            String @id @default(cuid())
+  shopId        String
+  shop          Shop   @relation(fields: [shopId], references: [id])
+  bookingNumber String @unique // BK-20260509-0001
+
+  channelId    String
+  channel      Channel @relation(fields: [channelId], references: [id])
+  sourceRef    String? // ?ref=video123, 영상 ID 등
+  sourceManual String? // "어떤 영상 보고 오셨어요?" 자유입력
+
+  // 차주 (Customer 매칭 옵션 + snapshot)
+  customerId          String?
+  customer            Customer? @relation(fields: [customerId], references: [id])
+  customerName        String
+  customerPhoneCipher Bytes
+  customerPhoneHash   String
+
+  // 차량 (Vehicle 매칭 옵션 + snapshot)
+  vehicleId           String?
+  vehicle             Vehicle?     @relation(fields: [vehicleId], references: [id])
+  vehiclePlateMasked  String?
+  vehicleManufacturer String?
+  vehicleModelName    String?
+  vehicleYear         Int?
+  vehicleFuel         FuelType?
+  vehicleCategory     CarCategory?
+
+  // 의도·메뉴
+  intent           BookingIntent
+  bookingMenuId    String?
+  bookingMenuName  String? // snapshot
+  warningLightCode String?
+  description      String? // 자유 텍스트
+
+  // 일정
+  desiredAt      DateTime?
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+
+  // 출장
+  isHouseCall          Boolean  @default(false)
+  customerLocationLine String?
+  customerLocationLat  Decimal? @db.Decimal(10, 7)
+  customerLocationLng  Decimal? @db.Decimal(10, 7)
+
+  estimatedAmount Int?
+
+  // 지점 (확정 후)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  status BookingStatus @default(NEW)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  confirmedAt DateTime?
+  canceledAt  DateTime?
+
+  jobs Job[]
+
+  @@index([shopId, status, scheduledStart])
+  @@index([shopId, channelId])
+  @@index([shopId, customerPhoneHash])
+}
+
+// =============================================================
+// SECTION 5: JOB (RO 작업지시서) & DVI & ESTIMATE
+// =============================================================
+
+enum JobStatus {
+  CREATED
+  SCHEDULED
+  EN_ROUTE // 출장: 출발
+  ARRIVED // 출장: 도착
+  IN_PROGRESS
+  AWAITING_APPROVAL // 추가 작업 고객 승인 대기
+  COMPLETED
+  CANCELED
+}
+
+model Job {
+  id        String @id @default(cuid())
+  shopId    String
+  shop      Shop   @relation(fields: [shopId], references: [id])
+  jobNumber String @unique // RO-20260509-0001
+
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  vehicleId  String
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id])
+
+  // ── 차량 snapshot (영수증 무결성) ──
+  vehiclePlateMasked  String
+  vehicleManufacturer String
+  vehicleModelName    String
+  vehicleCategory     CarCategory
+  vehicleFuel         FuelType
+  vehicleMileage      Int? // 작업 시점 마일리지 snapshot
+
+  // 출장
+  isHouseCall          Boolean  @default(false)
+  customerLocationLine String?
+  customerLocationLat  Decimal? @db.Decimal(10, 7)
+  customerLocationLng  Decimal? @db.Decimal(10, 7)
+
+  // 일정·timestamps
+  scheduledStart DateTime
+  scheduledEnd   DateTime?
+
+  departedAt  DateTime?
+  arrivedAt   DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  canceledAt  DateTime?
+
+  status JobStatus @default(CREATED)
+
+  // 금액 — 모두 snapshot
+  subtotal    Int @default(0)
+  travelFee   Int @default(0)
+  discount    Int @default(0)
+  totalAmount Int @default(0)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items       JobItem[]
+  assignments JobAssignment[]
+  inspections DigitalInspection[]
+  estimate    Estimate?
+  invoice     Invoice?
+  payment     Payment?
+  refunds     Refund[]
+  events      JobEvent[]
+
+  @@index([shopId, status, scheduledStart])
+  @@index([shopId, locationId, scheduledStart])
+  @@index([shopId, customerId])
+  @@index([shopId, completedAt])
+}
+
+model JobItem {
+  id    String @id @default(cuid())
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  bookingMenuId String? // 정찰가 메뉴 reference (옵션)
+  addOnMenuId   String?
+
+  name        String // snapshot
+  description String?
+  quantity    Int     @default(1)
+  unitPrice   Int // snapshot
+  totalPrice  Int
+
+  isAddOn              Boolean   @default(false)
+  // 작업 중 발견된 추가 항목은 false로 시작 → 고객 승인 후 true
+  isApprovedByCustomer Boolean   @default(true)
+  approvedAt           DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([jobId])
+}
+
+model JobAssignment {
+  id        String  @id @default(cuid())
+  jobId     String
+  job       Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     Staff   @relation(fields: [staffId], references: [id])
+  isPrimary Boolean @default(true)
+
+  assignedAt DateTime @default(now())
+
+  @@unique([jobId, staffId])
+  @@index([staffId])
+}
+
+model JobEvent {
+  id         String     @id @default(cuid())
+  jobId      String
+  job        Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fromStatus JobStatus?
+  toStatus   JobStatus
+  actorType  String // STAFF | SYSTEM | CUSTOMER
+  actorId    String?
+  payload    Json?
+  createdAt  DateTime   @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+enum DviStatus {
+  IN_PROGRESS
+  AWAITING_CUSTOMER
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// 디지털 차량점검 (DVI) — Core P0.5
+model DigitalInspection {
+  id    String @id @default(cuid())
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id])
+
+  status         DviStatus @default(IN_PROGRESS)
+  // [{ item, condition: "GOOD"|"FAIR"|"BAD", photoKeys: [], note }, ...]
+  checklistJson  Json
+  publicToken    String    @unique // 고객 승인 링크 (만료)
+  tokenExpiresAt DateTime
+
+  customerOpenedAt    DateTime?
+  customerRespondedAt DateTime?
+  customerSignature   String? // base64 svg or 동의 클릭
+  rejectReason        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([jobId])
+  @@index([status])
+}
+
+enum EstimateStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model Estimate {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+  jobId  String @unique
+  job    Job    @relation(fields: [jobId], references: [id])
+
+  estimateNumber String         @unique
+  status         EstimateStatus @default(DRAFT)
+
+  itemsJson   Json // 견적 항목 snapshot
+  subtotal    Int
+  totalAmount Int
+  validUntil  DateTime
+
+  publicToken String? @unique // 고객 클릭 승인 링크
+
+  sentAt     DateTime?
+  approvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shopId, status])
+}
+
+// =============================================================
+// SECTION 6: PRICING (BookingMenu 정찰제 + AddOn)
+// =============================================================
+
+enum BookingMenuJobType {
+  OIL // 엔진오일
+  BLACKBOX // 블랙박스
+  TIRE // 타이어
+  BATTERY // 배터리
+  WIPER // 와이퍼
+  AIRCON_FILTER // 에어컨 필터
+  AIR_FILTER // 에어 필터
+  GENERAL_CHECK // 일반 점검
+  OTHER
+}
+
+model BookingMenu {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  name        String // "기본형 합성유 5W-30"
+  description String?
+  jobType     BookingMenuJobType
+  durationMin Int
+
+  isHouseCall Boolean @default(false)
+  recommended Boolean @default(false)
+  active      Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  prices BookingMenuPrice[]
+
+  @@index([shopId, active])
+}
+
+// 차종 카테고리별 정찰제 + 가격 이력
+model BookingMenuPrice {
+  id            String      @id @default(cuid())
+  menuId        String
+  menu          BookingMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  category      CarCategory
+  price         Int? // null = 해당 차종 미지원
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  @@unique([menuId, category, effectiveFrom])
+}
+
+model AddOnMenu {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  name        String // "에어 필터 교체"
+  description String?
+  active      Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  prices AddOnMenuPrice[]
+
+  @@index([shopId, active])
+}
+
+model AddOnMenuPrice {
+  id            String      @id @default(cuid())
+  addOnId       String
+  addOn         AddOnMenu   @relation(fields: [addOnId], references: [id], onDelete: Cascade)
+  category      CarCategory
+  price         Int
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  @@unique([addOnId, category, effectiveFrom])
+}
+
+// =============================================================
+// SECTION 7: PAYMENT & INVOICE & 세금계산서
+// =============================================================
+
+enum PaymentMethod {
+  CARD
+  KAKAOPAY
+  NAVERPAY
+  TOSSPAY
+  BANK_TRANSFER
+  CASH // 매장 현장결제
+}
+
+enum PaymentStatus {
+  REQUESTED
+  AUTHORIZED
+  CAPTURED
+  CANCELED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Payment {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+  jobId  String @unique
+  job    Job    @relation(fields: [jobId], references: [id])
+
+  provider     String // toss
+  providerTxId String?
+  method       PaymentMethod
+  amount       Int
+  status       PaymentStatus
+
+  approvedAt    DateTime?
+  rawResponse   Json?
+  failureReason String?
+  receiptUrl    String?
+
+  idempotencyKey String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refunds Refund[]
+
+  @@index([shopId, status])
+  @@index([providerTxId])
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  COMPLETED
+  REJECTED
+  FAILED
+}
+
+model Refund {
+  id        String  @id @default(cuid())
+  shopId    String
+  shop      Shop    @relation(fields: [shopId], references: [id])
+  jobId     String
+  job       Job     @relation(fields: [jobId], references: [id])
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id])
+
+  amount     Int
+  reason     String
+  reasonCode String? // CUSTOMER_CANCEL | SHOP_NO_SHOW | DISPUTE
+  status     RefundStatus
+
+  requestedBy      String // userId
+  approvedBy       String?
+  providerRefundId String?
+
+  idempotencyKey String @unique
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([shopId, status])
+}
+
+model Invoice {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+  jobId  String @unique
+  job    Job    @relation(fields: [jobId], references: [id])
+
+  invoiceNumber String @unique
+
+  itemsJson   Json // 영수증 항목 snapshot
+  subtotal    Int
+  totalAmount Int
+
+  pdfKey String? // S3
+
+  issuedAt DateTime @default(now())
+
+  taxInvoice TaxInvoice?
+
+  @@index([shopId, issuedAt])
+}
+
+enum TaxInvoiceStatus {
+  PENDING
+  ISSUED
+  CANCELED
+  FAILED
+}
+
+// 세금계산서 (팝빌)
+model TaxInvoice {
+  id        String  @id @default(cuid())
+  shopId    String
+  shop      Shop    @relation(fields: [shopId], references: [id])
+  invoiceId String  @unique
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  provider      String // popbill
+  providerDocId String?
+  status        TaxInvoiceStatus
+
+  recipientType           String // PERSONAL | BUSINESS
+  recipientBusinessNumber String?
+  recipientEmail          String?
+
+  issuedAt      DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([shopId, status])
+}
+
+// =============================================================
+// SECTION 8: NOTIFICATIONS & REMINDERS (NHN 알림톡)
+// =============================================================
+
+enum NotificationChannelEnum {
+  KAKAO_ALIMTALK
+  KAKAO_FRIENDTALK
+  SMS
+  PUSH
+  EMAIL
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  BOUNCED
+}
+
+// 알림톡 템플릿 (사전 등록·심사 후 사용)
+model NotificationTemplate {
+  id     String  @id @default(cuid())
+  shopId String? // null = 플랫폼 공통
+  shop   Shop?   @relation(fields: [shopId], references: [id])
+
+  code       String                  @unique // BOOKING_CONFIRMED, JOB_DEPARTED, ...
+  channel    NotificationChannelEnum
+  templateId String? // 카카오 비즈메시지 템플릿 ID
+  body       String
+  variables  String[] // ["customerName", "scheduledTime"]
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs NotificationLog[]
+
+  @@index([shopId, code])
+}
+
+model NotificationLog {
+  id         String                @id @default(cuid())
+  shopId     String
+  shop       Shop                  @relation(fields: [shopId], references: [id])
+  templateId String?
+  template   NotificationTemplate? @relation(fields: [templateId], references: [id])
+
+  channel     NotificationChannelEnum
+  destination String // phone (개인정보 retention 정책 적용)
+
+  payload       Json
+  status        NotificationStatus
+  providerMsgId String?
+  errorCode     String?
+  errorMessage  String?
+
+  // 컨텍스트 ref
+  jobId      String?
+  bookingId  String?
+  customerId String?
+
+  idempotencyKey String @unique
+
+  createdAt   DateTime  @default(now())
+  sentAt      DateTime?
+  deliveredAt DateTime?
+
+  @@index([shopId, createdAt])
+  @@index([jobId])
+  @@index([bookingId])
+}
+
+enum ReminderTrigger {
+  MILEAGE_BASED // 주행거리
+  TIME_BASED // 기간 (6개월 등)
+  SEASONAL // 계절성
+}
+
+// 단골 자동 알림 룰 ("오일 갈 때 됐어요")
+model ReminderRule {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  name    String // "엔진오일 6개월 알림"
+  trigger ReminderTrigger
+  config  Json // { months: 6, jobTypes: ["OIL"] } 등
+
+  templateCode String // NotificationTemplate.code
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shopId, active])
+}
+
+// =============================================================
+// SECTION 9: SUBSCRIPTION (B2B SaaS — 토스페이먼츠 빌링)
+// =============================================================
+
+enum PlanTier {
+  FREE
+  STANDARD // 49,000원
+  MULTI // 89,000원
+}
+
+enum ModuleCode {
+  CREATOR // 🎬 +29,000원
+  FLEET // 🏢 P2
+  INSURANCE // 🛡️ P2
+  FRANCHISE // 🏬 P2
+}
+
+model Plan {
+  code         PlanTier @id
+  name         String
+  monthlyPrice Int
+  // { maxBookings, maxAlimtalk, maxLocations, ... }
+  features     Json
+  active       Boolean  @default(true)
+
+  subscriptions ShopSubscription[]
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+model ShopSubscription {
+  id       String   @id @default(cuid())
+  shopId   String   @unique
+  shop     Shop     @relation(fields: [shopId], references: [id])
+  planCode PlanTier
+  plan     Plan     @relation(fields: [planCode], references: [code])
+
+  status SubscriptionStatus
+
+  // 토스페이먼츠 빌링키 (암호화)
+  billingKeyCipher Bytes?
+  billingKeyMasked String? // "tviva****" 표시용
+
+  startedAt          DateTime
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  canceledAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  modules       ShopModule[]
+  billingEvents BillingEvent[]
+
+  @@index([status])
+  @@index([currentPeriodEnd])
+}
+
+model ShopModule {
+  id             String           @id @default(cuid())
+  subscriptionId String
+  subscription   ShopSubscription @relation(fields: [subscriptionId], references: [id])
+  module         ModuleCode
+  monthlyPrice   Int
+  enabledAt      DateTime         @default(now())
+  disabledAt     DateTime?
+
+  @@unique([subscriptionId, module])
+}
+
+enum BillingEventType {
+  TRIAL_STARTED
+  CHARGE_SUCCESS
+  CHARGE_FAILED
+  REFUND
+  PLAN_CHANGE
+  MODULE_ADDED
+  MODULE_REMOVED
+  CANCELED
+}
+
+model BillingEvent {
+  id             String           @id @default(cuid())
+  subscriptionId String
+  subscription   ShopSubscription @relation(fields: [subscriptionId], references: [id])
+
+  type         BillingEventType
+  amount       Int?
+  providerTxId String?
+  rawPayload   Json?
+
+  occurredAt DateTime @default(now())
+
+  @@index([subscriptionId, occurredAt])
+}
+
+// =============================================================
+// SECTION 10: CREATOR MODULE (1호 정비소 design partner)
+// =============================================================
+
+model CreatorVideo {
+  id     String @id @default(cuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  youtubeId    String
+  title        String
+  thumbnailUrl String?
+  publishedAt  DateTime
+
+  // 단축 부킹 링크용 ref (예: /book/[shop]?ref=video123)
+  refSlug String @unique
+
+  // YouTube Data API에서 정기 sync (캐시)
+  viewCount    Int?
+  lastSyncedAt DateTime?
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([shopId, youtubeId])
+  @@index([shopId, refSlug])
+}
+
+// =============================================================
+// SECTION 11: AUDIT & CONFIG
+// =============================================================
+
+model AuditLog {
+  id     String  @id @default(cuid())
+  shopId String? // null = platform-level
+
+  actorUserId String?
+  actor       User?   @relation("AuditActor", fields: [actorUserId], references: [id])
+  actorType   String // USER | SYSTEM | CUSTOMER_PUBLIC | API
+
+  action     String // BOOKING_CONFIRMED | JOB_COMPLETED | DOC_APPROVED | ...
+  targetType String // Booking | Job | Shop | ...
+  targetId   String
+
+  before Json?
+  after  Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([shopId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+}
+
+// 키-값 설정 (수수료율, 매칭 정책, feature flag, ...)
+model AppConfig {
+  key         String   @id // "feature.dvi" | "matching.timeout_sec" | ...
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+}

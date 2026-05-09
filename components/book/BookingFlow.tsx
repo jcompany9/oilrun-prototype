@@ -1,11 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
 import {
-  Star,
   Phone,
   MapPin,
   Clock,
@@ -18,6 +17,7 @@ import {
   Wrench,
   Check,
   Sparkles,
+  Truck,
 } from "lucide-react"
 import {
   bookingMenus,
@@ -85,7 +85,20 @@ const INTENTS: IntentOption[] = [
   },
 ]
 
-type Step = "intent" | "routine_category" | "routine_menu" | "warning" | "confirm"
+type Step = "intent" | "routine_category" | "routine_menu" | "time" | "warning" | "confirm"
+
+interface AvailabilitySlot {
+  time: string
+  available: boolean
+  capacity: number
+  reason?: string
+}
+interface AvailabilityResponse {
+  date: string
+  durationMin: number
+  mechanics: number
+  slots: AvailabilitySlot[]
+}
 
 export function BookingFlow({
   shop,
@@ -101,14 +114,65 @@ export function BookingFlow({
   const [selectedWarning, setSelectedWarning] = useState<WarningLight | null>(null)
   const [warningNote, setWarningNote] = useState("")
   const [refVideo, setRefVideo] = useState<CreatorVideo | undefined>(sourceVideo)
+  // 차주 정보 — confirm 단계에 입력
+  const [customerName, setCustomerName] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
+  const [vehiclePlate, setVehiclePlate] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
+  // 시간 선택 (routine 한정)
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+  const [selectedTime, setSelectedTime] = useState<string | null>(null)
+  const [availability, setAvailability] = useState<AvailabilityResponse | null>(null)
+  const [availLoading, setAvailLoading] = useState(false)
+
+  function ymd(d: Date) {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, "0")
+    const day = String(d.getDate()).padStart(2, "0")
+    return `${y}-${m}-${day}`
+  }
+
+  // 시간 단계 진입 또는 날짜 변경 시 가용성 fetch
+  useEffect(() => {
+    if (step !== "time") return
+    if (!selectedMenu) return
+    let canceled = false
+    setAvailLoading(true)
+    fetch(
+      `/api/public/availability?shop=${shop.slug}&date=${ymd(selectedDate)}&durationMin=${selectedMenu.durationMin}`
+    )
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`)
+        return r.json() as Promise<AvailabilityResponse>
+      })
+      .then((data) => {
+        if (canceled) return
+        setAvailability(data)
+        setAvailLoading(false)
+      })
+      .catch((e) => {
+        if (canceled) return
+        toast.error("시간 조회 실패", { description: String(e) })
+        setAvailLoading(false)
+      })
+    return () => {
+      canceled = true
+    }
+  }, [step, selectedDate, selectedMenu, shop.slug])
 
   const goBack = () => {
     if (step === "intent") return
     if (step === "routine_category") setStep("intent")
     else if (step === "routine_menu") setStep("routine_category")
+    else if (step === "time") setStep("routine_menu")
     else if (step === "warning") setStep("intent")
     else if (step === "confirm") {
-      setStep(intent === "warning" ? "warning" : "routine_menu")
+      setStep(intent === "warning" ? "warning" : "time")
     }
   }
 
@@ -127,16 +191,86 @@ export function BookingFlow({
     }
   }
 
-  const submit = () => {
-    toast.success("예약 신청 완료!", {
-      description: "사장님이 확인 후 카카오 알림톡으로 답변드려요",
-    })
+  const intentMap: Record<IntentType, "REGULAR" | "WARNING_LIGHT" | "NOISE" | "EMERGENCY"> = {
+    routine: "REGULAR",
+    warning: "WARNING_LIGHT",
+    noise: "NOISE",
+    emergency: "EMERGENCY",
+  }
+  const categoryMap: Record<CarCategory, "COMPACT" | "MIDSIZE" | "SUV" | "LUXURY" | "EV"> = {
+    compact: "COMPACT",
+    midsize: "MIDSIZE",
+    suv: "SUV",
+    luxury: "LUXURY",
+    ev: "EV",
+  }
+
+  const resetForm = () => {
     setStep("intent")
     setIntent(null)
     setCarCategory(null)
     setSelectedMenu(null)
     setSelectedWarning(null)
     setWarningNote("")
+    setCustomerName("")
+    setCustomerPhone("")
+    setVehiclePlate("")
+    setSelectedTime(null)
+    setAvailability(null)
+  }
+
+  const submit = async () => {
+    if (!intent) return
+    if (!customerName.trim() || !customerPhone.trim()) {
+      toast.error("이름과 휴대폰을 입력해주세요")
+      return
+    }
+    setSubmitting(true)
+    try {
+      const description =
+        intent === "warning"
+          ? `${selectedWarning?.name ?? "경고등"}${warningNote ? ` · ${warningNote}` : ""}`
+          : undefined
+
+      // 시간 선택 → ISO 변환
+      const scheduledStartISO =
+        selectedTime && intent === "routine"
+          ? new Date(`${ymd(selectedDate)}T${selectedTime}:00`).toISOString()
+          : undefined
+
+      const res = await fetch("/api/public/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopSlug: shop.slug,
+          intent: intentMap[intent],
+          customerName: customerName.trim(),
+          customerPhone: customerPhone.trim(),
+          vehiclePlate: vehiclePlate.trim() || undefined,
+          vehicleCategory: carCategory ? categoryMap[carCategory] : undefined,
+          bookingMenuId: selectedMenu?.id,
+          bookingMenuName: selectedMenu?.name,
+          estimatedAmount:
+            selectedMenu && carCategory ? selectedMenu.prices[carCategory] ?? undefined : undefined,
+          scheduledStart: scheduledStartISO,
+          durationMin: selectedMenu?.durationMin,
+          description,
+          sourceRef: refVideo?.id,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error ?? `${res.status}`)
+      }
+      toast.success("예약 신청 완료!", {
+        description: "사장님이 확인 후 카카오 알림톡으로 답변드려요",
+      })
+      resetForm()
+    } catch (e) {
+      toast.error("예약 실패", { description: String(e) })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -197,8 +331,36 @@ export function BookingFlow({
                 category={carCategory}
                 onPick={(m) => {
                   setSelectedMenu(m)
+                  setSelectedTime(null)
+                  setAvailability(null)
+                  setStep("time")
+                }}
+              />
+            </motion.div>
+          )}
+
+          {step === "time" && (
+            <motion.div
+              key="time"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <TimeStep
+                selectedDate={selectedDate}
+                onDateChange={(d) => {
+                  setSelectedDate(d)
+                  setSelectedTime(null)
+                }}
+                selectedTime={selectedTime}
+                onPickTime={(t) => {
+                  setSelectedTime(t)
                   setStep("confirm")
                 }}
+                availability={availability}
+                loading={availLoading}
+                durationMin={selectedMenu?.durationMin ?? 30}
               />
             </motion.div>
           )}
@@ -237,6 +399,13 @@ export function BookingFlow({
                 warning={selectedWarning}
                 note={warningNote}
                 refVideo={refVideo}
+                customerName={customerName}
+                onCustomerNameChange={setCustomerName}
+                customerPhone={customerPhone}
+                onCustomerPhoneChange={setCustomerPhone}
+                vehiclePlate={vehiclePlate}
+                onVehiclePlateChange={setVehiclePlate}
+                submitting={submitting}
                 onSubmit={submit}
               />
             </motion.div>
@@ -285,16 +454,6 @@ function ShopHeader({
         <div className="mt-3">
           <h1 className="text-xl font-extrabold text-gray-900">{shop.name}</h1>
           <p className="mt-0.5 text-sm text-gray-600">{shop.ownerGreeting}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-            <span className="inline-flex items-center gap-0.5 font-semibold text-yellow-600">
-              <Star className="h-3.5 w-3.5 fill-yellow-500 text-yellow-500" />
-              {shop.ratingAvg} ({shop.ratingCount.toLocaleString()})
-            </span>
-            <span>·</span>
-            <span>경력 {shop.yearsInBusiness}년</span>
-            <span>·</span>
-            <span>{shop.servicesCount.toLocaleString()}건 시공</span>
-          </div>
           <div className="mt-2 space-y-0.5 text-xs text-gray-600">
             <p className="flex items-center gap-1">
               <MapPin className="h-3 w-3 shrink-0" />
@@ -421,22 +580,36 @@ function MenuStep({
               <button
                 type="button"
                 onClick={() => onPick(m)}
-                className="flex w-full items-start gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-left shadow-sm transition-colors hover:border-blue-400"
+                className="flex w-full items-start gap-3 rounded-xl border bg-white px-4 py-3.5 text-left shadow-sm transition-colors hover:border-blue-400"
+                style={{ borderColor: m.isHouseCall ? "#FDBA74" : "#E5E7EB" }}
               >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-xl">
-                  {jobTypeEmoji[m.jobType]}
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xl"
+                  style={{ backgroundColor: m.isHouseCall ? "#FFEDD5" : "#F9FAFB" }}
+                >
+                  {m.isHouseCall ? "🚐" : jobTypeEmoji[m.jobType]}
                 </span>
                 <div className="flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-bold text-gray-900">{m.name}</p>
-                    {m.recommended && (
-                      <span
-                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                        style={{ backgroundColor: "#FED7AA", color: "#C2410C" }}
-                      >
-                        추천
-                      </span>
-                    )}
+                    <div className="flex shrink-0 items-center gap-1">
+                      {m.isHouseCall && (
+                        <span
+                          className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                          style={{ backgroundColor: "#FED7AA", color: "#C2410C" }}
+                        >
+                          출장
+                        </span>
+                      )}
+                      {m.recommended && (
+                        <span
+                          className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                          style={{ backgroundColor: "#DBEAFE", color: "#1E40AF" }}
+                        >
+                          추천
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <p className="mt-0.5 text-xs text-gray-600">{m.description}</p>
                   <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
@@ -539,6 +712,172 @@ function WarningStep({
   )
 }
 
+// ─── 시간 선택 단계 ──────────────────────────────────
+const KO_DAY_SHORT = ["일", "월", "화", "수", "목", "금", "토"]
+
+function TimeStep({
+  selectedDate,
+  onDateChange,
+  selectedTime,
+  onPickTime,
+  availability,
+  loading,
+  durationMin,
+}: {
+  selectedDate: Date
+  onDateChange: (d: Date) => void
+  selectedTime: string | null
+  onPickTime: (time: string) => void
+  availability: AvailabilityResponse | null
+  loading: boolean
+  durationMin: number
+}) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() + i)
+    return d
+  })
+
+  function sameDay(a: Date, b: Date) {
+    return (
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate()
+    )
+  }
+
+  // 슬롯을 morning/afternoon으로 그룹
+  const morningSlots = availability?.slots.filter((s) => parseInt(s.time) < 12) ?? []
+  const afternoonSlots = availability?.slots.filter((s) => parseInt(s.time) >= 13) ?? []
+
+  return (
+    <section>
+      <h2 className="text-xl font-extrabold text-gray-900">원하는 시간을 골라주세요</h2>
+      <p className="mt-1 text-sm text-gray-500">
+        작업 시간 약 {durationMin}분
+        {availability && ` · 정비사 ${availability.mechanics}명 동시 진행 가능`}
+      </p>
+
+      {/* 날짜 strip */}
+      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+        {days.map((d) => {
+          const active = sameDay(d, selectedDate)
+          const isToday = sameDay(d, today)
+          return (
+            <button
+              key={d.toISOString()}
+              type="button"
+              onClick={() => onDateChange(d)}
+              className={`flex shrink-0 flex-col items-center rounded-xl border px-4 py-2 transition-colors ${
+                active
+                  ? "border-blue-700 text-white"
+                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+              }`}
+              style={active ? { backgroundColor: "#1E40AF" } : undefined}
+            >
+              <span className={`text-[10px] font-medium ${active ? "" : "text-gray-500"}`}>
+                {KO_DAY_SHORT[d.getDay()]}
+              </span>
+              <span className="text-base font-bold tabular-nums">{d.getDate()}</span>
+              {isToday && (
+                <span
+                  className={`text-[9px] font-bold ${
+                    active ? "" : "text-blue-700"
+                  }`}
+                >
+                  오늘
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 슬롯 그리드 */}
+      <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+        {loading ? (
+          <p className="text-center text-sm text-gray-500">로드 중…</p>
+        ) : !availability || availability.slots.length === 0 ? (
+          <p className="text-center text-sm text-gray-500">예약 가능한 시간이 없어요</p>
+        ) : (
+          <>
+            {morningSlots.length > 0 && (
+              <SlotGroup
+                title="오전"
+                slots={morningSlots}
+                selectedTime={selectedTime}
+                onPick={onPickTime}
+              />
+            )}
+            {afternoonSlots.length > 0 && (
+              <SlotGroup
+                title="오후"
+                slots={afternoonSlots}
+                selectedTime={selectedTime}
+                onPick={onPickTime}
+              />
+            )}
+          </>
+        )}
+      </div>
+
+      <p className="mt-3 text-center text-[11px] text-gray-500">
+        가능한 시간만 보입니다. 정비사가 동시 처리할 수 있어 같은 시간에도 자리가 있을 수 있어요.
+      </p>
+    </section>
+  )
+}
+
+function SlotGroup({
+  title,
+  slots,
+  selectedTime,
+  onPick,
+}: {
+  title: string
+  slots: AvailabilitySlot[]
+  selectedTime: string | null
+  onPick: (time: string) => void
+}) {
+  return (
+    <div className="mb-3 last:mb-0">
+      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+        {title}
+      </p>
+      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+        {slots.map((s) => {
+          const active = selectedTime === s.time
+          const lunch = s.reason === "lunch"
+          return (
+            <button
+              key={s.time}
+              type="button"
+              onClick={() => s.available && onPick(s.time)}
+              disabled={!s.available}
+              className={`rounded-lg border px-2 py-2 text-xs font-bold transition-colors ${
+                active
+                  ? "text-white"
+                  : s.available
+                    ? "border-gray-200 bg-white text-gray-900 hover:border-blue-400"
+                    : "cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300"
+              }`}
+              style={
+                active
+                  ? { backgroundColor: "#1E40AF", borderColor: "#1E40AF" }
+                  : undefined
+              }
+            >
+              {lunch ? "🍽️" : s.time}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function ConfirmStep({
   shop,
   intent,
@@ -547,6 +886,13 @@ function ConfirmStep({
   warning,
   note,
   refVideo,
+  customerName,
+  onCustomerNameChange,
+  customerPhone,
+  onCustomerPhoneChange,
+  vehiclePlate,
+  onVehiclePlateChange,
+  submitting,
   onSubmit,
 }: {
   shop: SaasPublicShop
@@ -556,6 +902,13 @@ function ConfirmStep({
   warning: WarningLight | null
   note: string
   refVideo?: CreatorVideo
+  customerName: string
+  onCustomerNameChange: (v: string) => void
+  customerPhone: string
+  onCustomerPhoneChange: (v: string) => void
+  vehiclePlate: string
+  onVehiclePlateChange: (v: string) => void
+  submitting: boolean
   onSubmit: () => void
 }) {
   const isWarning = intent === "warning"
@@ -579,9 +932,19 @@ function ConfirmStep({
         {!isWarning && menu && category && (
           <>
             <div className="flex items-start gap-3">
-              <span className="text-2xl">{jobTypeEmoji[menu.jobType]}</span>
+              <span className="text-2xl">{menu.isHouseCall ? "🚐" : jobTypeEmoji[menu.jobType]}</span>
               <div className="flex-1">
-                <p className="text-base font-bold text-gray-900">{menu.name}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-base font-bold text-gray-900">{menu.name}</p>
+                  {menu.isHouseCall && (
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                      style={{ backgroundColor: "#FED7AA", color: "#C2410C" }}
+                    >
+                      출장
+                    </span>
+                  )}
+                </div>
                 <p className="mt-0.5 text-xs text-gray-500">
                   {carCategoryLabel[category]} · 약 {menu.durationMin}분
                 </p>
@@ -598,6 +961,17 @@ function ConfirmStep({
                 정찰가 보장 · 추가 작업 시 사장님 확인 후 동의 시에만 진행
               </p>
             </div>
+            {menu.isHouseCall && (
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900">
+                <p className="flex items-center gap-1 font-bold">
+                  <Truck className="h-3.5 w-3.5" />
+                  출장 서비스 안내
+                </p>
+                <p className="mt-1">
+                  기사님이 직접 차량 위치로 방문해서 작업합니다. 주차장·자택·사무실 어디든 가능해요.
+                </p>
+              </div>
+            )}
           </>
         )}
 
@@ -632,16 +1006,22 @@ function ConfirmStep({
 
       <input
         type="text"
+        value={customerName}
+        onChange={(e) => onCustomerNameChange(e.target.value)}
         placeholder="이름"
         className="mt-4 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-blue-400 focus:outline-none"
       />
       <input
         type="tel"
+        value={customerPhone}
+        onChange={(e) => onCustomerPhoneChange(e.target.value)}
         placeholder="휴대폰 번호 (010-)"
         className="mt-2 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-blue-400 focus:outline-none"
       />
       <input
         type="text"
+        value={vehiclePlate}
+        onChange={(e) => onVehiclePlateChange(e.target.value)}
         placeholder="차량번호 (예: 12가3456)"
         className="mt-2 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm focus:border-blue-400 focus:outline-none"
       />
@@ -649,11 +1029,12 @@ function ConfirmStep({
       <button
         type="button"
         onClick={onSubmit}
-        className="mt-5 inline-flex h-14 w-full items-center justify-center gap-2 rounded-xl text-base font-extrabold text-white transition-opacity hover:opacity-90"
+        disabled={submitting}
+        className="mt-5 inline-flex h-14 w-full items-center justify-center gap-2 rounded-xl text-base font-extrabold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
         style={{ backgroundColor: "#F97316" }}
       >
         <Check className="h-5 w-5" />
-        예약 신청
+        {submitting ? "신청 중…" : "예약 신청"}
       </button>
       <p className="mt-2 text-center text-[11px] text-gray-500">
         신청 후 사장님 확인 → 카카오 알림톡으로 확정 알림이 갑니다

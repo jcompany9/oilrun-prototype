@@ -7,16 +7,19 @@ import {
   Calendar,
   Users,
   TrendingUp,
-  Building2,
   PlayCircle,
   ExternalLink,
   Menu,
   X,
   Bell,
-  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { saasLocations } from "@/lib/mock-data"
 import { formatKRW } from "@/lib/utils"
+import { InboxProvider, useInbox } from "@/lib/contexts/saas-inbox"
+import { InboxSidebar } from "./InboxSidebar"
+import { DragGhost } from "./DragGhost"
 
 interface NavItem {
   label: string
@@ -30,7 +33,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: "통합 캘린더", href: "/saas", icon: Calendar },
   { label: "고객·차량", href: "/saas/customers", icon: Users },
   { label: "매출", href: "/saas/revenue", icon: TrendingUp },
-  { label: "지점", href: "/saas/locations", icon: Building2 },
   { label: "Creator 모듈", href: "/saas/creator", icon: PlayCircle, isModule: true },
 ]
 
@@ -39,19 +41,27 @@ const EXTERNAL_ITEMS: NavItem[] = [
 ]
 
 export function SaasShell({ children }: { children: React.ReactNode }) {
+  return (
+    <InboxProvider>
+      <SaasShellInner>{children}</SaasShellInner>
+    </InboxProvider>
+  )
+}
+
+function SaasShellInner({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeLocation, setActiveLocation] = useState("all")
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+  const inbox = useInbox()
 
   return (
     <div className="flex h-screen flex-col bg-gray-50">
-      <SaasHeader
-        onOpenSidebar={() => setSidebarOpen(true)}
-        activeLocation={activeLocation}
-        onLocationChange={setActiveLocation}
-      />
+      <SaasHeader onOpenSidebar={() => setSidebarOpen(true)} />
 
       <div className="flex flex-1 overflow-hidden">
-        <SaasSidebar />
+        <SaasSidebar
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed((c) => !c)}
+        />
 
         {sidebarOpen && (
           <>
@@ -81,21 +91,21 @@ export function SaasShell({ children }: { children: React.ReactNode }) {
         )}
 
         <main className="relative flex-1 overflow-y-auto">{children}</main>
+
+        <InboxSidebar />
       </div>
+
+      <DragGhost />
     </div>
   )
 }
 
-function SaasHeader({
-  onOpenSidebar,
-  activeLocation,
-  onLocationChange,
-}: {
-  onOpenSidebar: () => void
-  activeLocation: string
-  onLocationChange: (id: string) => void
-}) {
-  const totalRevenue = saasLocations.reduce((s, l) => s + l.todayRevenue, 0)
+function SaasHeader({ onOpenSidebar }: { onOpenSidebar: () => void }) {
+  // 1 Shop = 1 호점 (호점이 다르면 별도 가입). 매출은 현 정비소 본점만.
+  const todayRevenue = saasLocations[0]?.todayRevenue ?? 0
+  const inbox = useInbox()
+  const inboxCount = inbox.incoming.length
+  const hasInbox = !inbox.loading && inboxCount > 0
 
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 sm:px-6">
@@ -128,11 +138,6 @@ function SaasHeader({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        <LocationSwitcher
-          activeLocation={activeLocation}
-          onLocationChange={onLocationChange}
-        />
-
         <div
           className="hidden rounded-xl px-3 py-1.5 sm:block"
           style={{ backgroundColor: "#DBEAFE" }}
@@ -141,19 +146,34 @@ function SaasHeader({
             오늘 매출
           </p>
           <p className="text-sm font-bold tabular-nums" style={{ color: "#1E40AF" }}>
-            {formatKRW(totalRevenue)}
+            {formatKRW(todayRevenue)}
           </p>
         </div>
 
         <button
           type="button"
-          aria-label="알림"
+          onClick={inbox.expandInbox}
+          aria-label="들어오는 예약"
+          title={hasInbox ? `들어오는 예약 ${inboxCount}건` : "들어오는 예약"}
           className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100"
         >
           <Bell className="h-5 w-5" />
-          <span className="absolute top-1.5 right-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-            3
-          </span>
+          {hasInbox && (
+            <>
+              <span
+                className="absolute top-1.5 right-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
+                style={{ backgroundColor: "#F97316" }}
+              >
+                {inboxCount}
+              </span>
+              <span className="absolute top-1 right-1 flex h-2.5 w-2.5">
+                <span
+                  className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
+                  style={{ backgroundColor: "#FB923C" }}
+                />
+              </span>
+            </>
+          )}
         </button>
         <div
           className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold"
@@ -167,112 +187,109 @@ function SaasHeader({
   )
 }
 
-function LocationSwitcher({
-  activeLocation,
-  onLocationChange,
+function SaasSidebar({
+  collapsed,
+  onToggle,
 }: {
-  activeLocation: string
-  onLocationChange: (id: string) => void
+  collapsed: boolean
+  onToggle: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const activeLabel =
-    activeLocation === "all"
-      ? "전체"
-      : saasLocations.find((l) => l.id === activeLocation)?.shortName ?? "전체"
-
   return (
-    <div className="relative">
+    <aside
+      className={`relative hidden shrink-0 flex-col border-r border-gray-200 bg-white transition-[width] duration-200 lg:flex ${
+        collapsed ? "w-14" : "w-56"
+      }`}
+    >
+      {/* 우측 가장자리 떠있는 토글 버튼 — 항상 보임 */}
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        onClick={onToggle}
+        aria-label={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
+        title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
+        className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-700"
       >
-        <Building2 className="h-4 w-4" />
-        <span>{activeLabel}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
+        {collapsed ? (
+          <ChevronRight className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronLeft className="h-3.5 w-3.5" />
+        )}
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-11 z-40 min-w-[180px] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
-            <button
-              type="button"
-              onClick={() => {
-                onLocationChange("all")
-                setOpen(false)
-              }}
-              className={`block w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${
-                activeLocation === "all" ? "font-bold text-blue-700" : "text-gray-700"
-              }`}
-            >
-              전체 (본점 + 2호점)
-            </button>
-            {saasLocations.map((loc) => (
-              <button
-                key={loc.id}
-                type="button"
-                onClick={() => {
-                  onLocationChange(loc.id)
-                  setOpen(false)
-                }}
-                className={`block w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${
-                  activeLocation === loc.id ? "font-bold text-blue-700" : "text-gray-700"
-                }`}
-              >
-                {loc.shortName}
-                <span className="ml-2 text-xs text-gray-400">{loc.address.split(" ").slice(1, 3).join(" ")}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
 
-function SaasSidebar() {
-  return (
-    <aside className="hidden w-56 shrink-0 flex-col border-r border-gray-200 bg-white lg:flex">
-      <SidebarNav />
+      <SidebarNav collapsed={collapsed} />
     </aside>
   )
 }
 
-function SidebarNav({ onClickItem }: { onClickItem?: () => void }) {
+function SidebarNav({
+  onClickItem,
+  collapsed,
+}: {
+  onClickItem?: () => void
+  collapsed?: boolean
+}) {
   const pathname = usePathname()
 
   return (
-    <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-4">
-      <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-        Core
-      </p>
+    <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-2 py-4">
+      {!collapsed && (
+        <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+          Core
+        </p>
+      )}
       {NAV_ITEMS.filter((i) => !i.isModule).map((item) => (
-        <NavLink key={item.href} item={item} pathname={pathname} onClick={onClickItem} />
+        <NavLink
+          key={item.href}
+          item={item}
+          pathname={pathname}
+          onClick={onClickItem}
+          collapsed={collapsed}
+        />
       ))}
 
-      <p className="mt-4 px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-        🎬 Add-on Modules
-      </p>
+      {collapsed ? (
+        <div className="mx-2 my-2 border-t border-gray-200" />
+      ) : (
+        <p className="mt-4 px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+          🎬 Add-on Modules
+        </p>
+      )}
       {NAV_ITEMS.filter((i) => i.isModule).map((item) => (
-        <NavLink key={item.href} item={item} pathname={pathname} onClick={onClickItem} />
+        <NavLink
+          key={item.href}
+          item={item}
+          pathname={pathname}
+          onClick={onClickItem}
+          collapsed={collapsed}
+        />
       ))}
 
-      <p className="mt-4 px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-        퍼블릭
-      </p>
+      {collapsed ? (
+        <div className="mx-2 my-2 border-t border-gray-200" />
+      ) : (
+        <p className="mt-4 px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+          퍼블릭
+        </p>
+      )}
       {EXTERNAL_ITEMS.map((item) => (
-        <NavLink key={item.href} item={item} pathname={pathname} onClick={onClickItem} external />
+        <NavLink
+          key={item.href}
+          item={item}
+          pathname={pathname}
+          onClick={onClickItem}
+          external
+          collapsed={collapsed}
+        />
       ))}
 
-      <div className="mt-auto rounded-lg bg-gradient-to-br from-blue-50 to-orange-50 p-3 text-xs">
-        <p className="font-bold text-gray-900">Standard 플랜</p>
-        <p className="mt-0.5 text-gray-600">
-          + 🎬 Creator (design partner)
-        </p>
-        <p className="mt-1.5 font-bold tabular-nums" style={{ color: "#1E40AF" }}>
-          월 49,000원
-        </p>
-      </div>
+      {!collapsed && (
+        <div className="mt-auto rounded-lg bg-gradient-to-br from-blue-50 to-orange-50 p-3 text-xs">
+          <p className="font-bold text-gray-900">Standard 플랜</p>
+          <p className="mt-0.5 text-gray-600">+ 🎬 Creator (design partner)</p>
+          <p className="mt-1.5 font-bold tabular-nums" style={{ color: "#1E40AF" }}>
+            월 49,000원
+          </p>
+        </div>
+      )}
     </nav>
   )
 }
@@ -282,11 +299,13 @@ function NavLink({
   pathname,
   onClick,
   external,
+  collapsed,
 }: {
   item: NavItem
   pathname: string
   onClick?: () => void
   external?: boolean
+  collapsed?: boolean
 }) {
   const Icon = item.icon
   const isActive = pathname === item.href || (item.href !== "/saas" && pathname.startsWith(item.href))
@@ -295,7 +314,10 @@ function NavLink({
     <Link
       href={item.href}
       onClick={onClick}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+      title={collapsed ? item.label : undefined}
+      className={`flex items-center gap-3 rounded-lg text-sm transition-colors ${
+        collapsed ? "justify-center px-2 py-2.5" : "px-3 py-2.5"
+      } ${
         isActive
           ? "font-bold text-white"
           : "font-medium text-gray-700 hover:bg-gray-50"
@@ -303,8 +325,12 @@ function NavLink({
       style={isActive ? { backgroundColor: "#1E40AF" } : undefined}
     >
       <Icon className="h-4 w-4 shrink-0" strokeWidth={isActive ? 2.25 : 2} />
-      <span className="flex-1">{item.label}</span>
-      {external && <ExternalLink className="h-3 w-3 text-gray-400" />}
+      {!collapsed && (
+        <>
+          <span className="flex-1 truncate">{item.label}</span>
+          {external && <ExternalLink className="h-3 w-3 text-gray-400" />}
+        </>
+      )}
     </Link>
   )
 }

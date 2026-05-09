@@ -5,10 +5,9 @@
       "Bash(curl *)",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(git commit -m ' *)",
-      "Bash(grep -nE \"scheduledAt|예약\" C:\\\\Users\\\\graet\\\\oilrun-prototype\\\\app\\\\shop\\\\orders\\\\\\\\[id\\\\\\\\]\\\\\\\\page.tsx)",
-      "WebFetch(domain:www.intravan.co.kr)",
-      "WebFetch(domain:partners.cardoc.co.kr)"
+      "Bash(git pull *)",
+      "Bash(git checkout *)",
+      "Bash(npx prisma *)"
     ]
   }
 }
