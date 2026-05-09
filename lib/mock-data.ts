@@ -980,6 +980,772 @@ export function findAvailabilityDay(
   return availableSlots.find((d) => d.date === dateKey)
 }
 
+// =============================================================================
+// SaaS-related mock data (Core SaaS + Creator module)
+// =============================================================================
+
+export type SaasChannel =
+  | "kakao"
+  | "phone"
+  | "naver"
+  | "oilrun"
+  | "self"
+  | "youtube"
+
+export const channelLabel: Record<SaasChannel, string> = {
+  kakao: "카카오톡",
+  phone: "전화",
+  naver: "네이버",
+  oilrun: "OilRun",
+  self: "자사앱",
+  youtube: "유튜브",
+}
+
+export const channelEmoji: Record<SaasChannel, string> = {
+  kakao: "💬",
+  phone: "📞",
+  naver: "🟢",
+  oilrun: "🛢️",
+  self: "📱",
+  youtube: "▶️",
+}
+
+export const channelColor: Record<SaasChannel, { bg: string; fg: string }> = {
+  kakao: { bg: "#FEF3C7", fg: "#A16207" },
+  phone: { bg: "#E5E7EB", fg: "#374151" },
+  naver: { bg: "#DCFCE7", fg: "#15803D" },
+  oilrun: { bg: "#DBEAFE", fg: "#1E40AF" },
+  self: { bg: "#EDE9FE", fg: "#6D28D9" },
+  youtube: { bg: "#FEE2E2", fg: "#B91C1C" },
+}
+
+export interface SaasLocation {
+  id: string
+  name: string
+  shortName: string
+  address: string
+  phone: string
+  staffCount: number
+  todayRevenue: number
+  monthRevenue: number
+  todayJobs: number
+  isMain: boolean
+}
+
+export const saasLocations: SaasLocation[] = [
+  {
+    id: "main",
+    name: "형제자동차정비 본점",
+    shortName: "본점",
+    address: "서울시 강남구 역삼동 123-45",
+    phone: "02-123-4567",
+    staffCount: 5,
+    todayRevenue: 1240000,
+    monthRevenue: 28500000,
+    todayJobs: 14,
+    isMain: true,
+  },
+  {
+    id: "branch1",
+    name: "형제자동차정비 송파점",
+    shortName: "2호점",
+    address: "서울시 송파구 잠실동 200-12",
+    phone: "02-456-7890",
+    staffCount: 3,
+    todayRevenue: 670000,
+    monthRevenue: 14200000,
+    todayJobs: 7,
+    isMain: false,
+  },
+]
+
+export interface SaasStaff {
+  id: string
+  name: string
+  role: "owner" | "senior" | "junior" | "intern" | "desk"
+  roleLabel: string
+  locationId: string
+  phone: string
+  avatar: string
+  todayJobs: number
+  isOff?: boolean
+}
+
+export const saasStaff: SaasStaff[] = [
+  { id: "s1", name: "김형제", role: "owner", roleLabel: "사장", locationId: "main", phone: "010-1234-5678", avatar: "김", todayJobs: 0 },
+  { id: "s2", name: "박정비", role: "senior", roleLabel: "수석정비사", locationId: "main", phone: "010-1234-5678", avatar: "박", todayJobs: 4 },
+  { id: "s3", name: "이기사", role: "senior", roleLabel: "정비사", locationId: "main", phone: "010-1234-5678", avatar: "이", todayJobs: 4 },
+  { id: "s4", name: "최기사", role: "junior", roleLabel: "정비사", locationId: "main", phone: "010-1234-5678", avatar: "최", todayJobs: 3 },
+  { id: "s5", name: "정매니저", role: "desk", roleLabel: "데스크", locationId: "main", phone: "010-1234-5678", avatar: "정", todayJobs: 0 },
+  { id: "s6", name: "한기사", role: "senior", roleLabel: "수석정비사", locationId: "branch1", phone: "010-1234-5678", avatar: "한", todayJobs: 4 },
+  { id: "s7", name: "조기사", role: "junior", roleLabel: "정비사", locationId: "branch1", phone: "010-1234-5678", avatar: "조", todayJobs: 3 },
+  { id: "s8", name: "윤기사", role: "intern", roleLabel: "견습", locationId: "branch1", phone: "010-1234-5678", avatar: "윤", todayJobs: 0, isOff: true },
+]
+
+export type SaasJobType =
+  | "oil"
+  | "tire"
+  | "blackbox"
+  | "inspection"
+  | "battery"
+  | "general"
+  | "house_call"
+
+export const jobTypeLabel: Record<SaasJobType, string> = {
+  oil: "오일교환",
+  tire: "타이어",
+  blackbox: "블랙박스",
+  inspection: "점검",
+  battery: "배터리",
+  general: "정비",
+  house_call: "출장",
+}
+
+export const jobTypeEmoji: Record<SaasJobType, string> = {
+  oil: "🛢️",
+  tire: "🛞",
+  blackbox: "📹",
+  inspection: "🔍",
+  battery: "🔋",
+  general: "🔧",
+  house_call: "🚐",
+}
+
+export const jobTypeColor: Record<SaasJobType, string> = {
+  oil: "#1E40AF",
+  tire: "#0F766E",
+  blackbox: "#7C3AED",
+  inspection: "#0891B2",
+  battery: "#CA8A04",
+  general: "#6B7280",
+  house_call: "#F97316",
+}
+
+export interface SaasJob {
+  id: string
+  channel: SaasChannel
+  jobType: SaasJobType
+  title: string
+  customerName: string
+  customerPhone: string
+  vehiclePlate: string
+  vehicleModel: string
+  startHour: number
+  startMinute: number
+  durationMin: number
+  staffId?: string
+  locationId: string
+  status: OrderStatus
+  total: number
+  isHouseCall?: boolean
+  address?: string
+  videoRef?: string
+  notes?: string
+}
+
+const buildJob = (
+  id: string,
+  channel: SaasChannel,
+  jobType: SaasJobType,
+  customerName: string,
+  vehiclePlate: string,
+  vehicleModel: string,
+  startHour: number,
+  startMinute: number,
+  durationMin: number,
+  staffId: string,
+  locationId: string,
+  status: OrderStatus,
+  total: number,
+  extra: Partial<SaasJob> = {}
+): SaasJob => ({
+  id,
+  channel,
+  jobType,
+  title: jobTypeLabel[jobType],
+  customerName,
+  customerPhone: "010-1234-5678",
+  vehiclePlate,
+  vehicleModel,
+  startHour,
+  startMinute,
+  durationMin,
+  staffId,
+  locationId,
+  status,
+  total,
+  ...extra,
+})
+
+// 본점 + 2호점 today 일정 (2026-05-05 화요일)
+export const saasJobs: SaasJob[] = [
+  // === 본점 ===
+  buildJob("J-001", "kakao", "oil", "김민수", "12가3456", "카니발 4세대", 9, 0, 45, "s2", "main", "completed", 89000),
+  buildJob("J-002", "naver", "blackbox", "이서연", "34나5678", "쏘나타 DN8", 9, 30, 90, "s3", "main", "completed", 350000),
+  buildJob("J-003", "kakao", "inspection", "박지호", "56다7890", "아반떼 CN7", 10, 0, 60, "s4", "main", "completed", 50000),
+  buildJob("J-004", "phone", "tire", "최예린", "78라9012", "쏘렌토 MQ4", 11, 0, 60, "s2", "main", "completed", 280000),
+  buildJob("J-005", "oilrun", "house_call", "정도윤", "90마1234", "모닝 JA", 11, 0, 60, "s3", "main", "completed", 89000, { isHouseCall: true, address: "강남구 삼성동 88-2" }),
+  buildJob("J-006", "kakao", "oil", "한지우", "12가7788", "그랜저 IG", 13, 0, 45, "s4", "main", "in_progress", 129000),
+  buildJob("J-007", "self", "battery", "강민준", "23나4455", "투싼 NX4", 13, 30, 30, "s2", "main", "in_progress", 150000),
+  buildJob("J-008", "youtube", "blackbox", "송지유", "45다6677", "K5 DL3", 14, 0, 90, "s3", "main", "scheduled", 350000, { videoRef: "video-002" }),
+  buildJob("J-009", "oilrun", "house_call", "윤재민", "67라8899", "팰리세이드", 14, 30, 60, "s4", "main", "scheduled", 99000, { isHouseCall: true, address: "서초구 반포동 67-8" }),
+  buildJob("J-010", "phone", "oil", "조하늘", "89마9900", "셀토스", 15, 0, 45, "s2", "main", "scheduled", 89000),
+  buildJob("J-011", "phone", "tire", "임수아", "01바1122", "스파크", 16, 0, 60, "s3", "main", "scheduled", 240000),
+  buildJob("J-012", "youtube", "inspection", "노현우", "23사3344", "EV6", 16, 30, 60, "s4", "main", "scheduled", 60000, { videoRef: "video-005" }),
+  buildJob("J-013", "kakao", "oil", "백나연", "45아5566", "G80", 17, 0, 45, "s2", "main", "scheduled", 169000),
+  buildJob("J-014", "oilrun", "house_call", "구하준", "67자7788", "스타리아", 17, 30, 60, "s3", "main", "scheduled", 89000, { isHouseCall: true, address: "강남구 청담동 45-12" }),
+
+  // === 2호점 ===
+  buildJob("J-015", "kakao", "oil", "장민서", "11가1234", "K3", 9, 30, 45, "s6", "branch1", "completed", 89000),
+  buildJob("J-016", "naver", "blackbox", "오시현", "22나2345", "쏘나타 DN8", 10, 30, 90, "s6", "branch1", "completed", 350000),
+  buildJob("J-017", "self", "inspection", "양도윤", "33다3456", "투싼 NX4", 11, 30, 60, "s7", "branch1", "completed", 60000),
+  buildJob("J-018", "phone", "tire", "권유나", "44라4567", "스포티지", 13, 0, 60, "s6", "branch1", "in_progress", 380000),
+  buildJob("J-019", "self", "battery", "남예준", "55마5678", "QM6", 14, 30, 30, "s7", "branch1", "scheduled", 180000),
+  buildJob("J-020", "youtube", "oil", "유시우", "66바6789", "쏘나타 DN8", 15, 30, 45, "s6", "branch1", "scheduled", 89000, { videoRef: "video-001" }),
+  buildJob("J-021", "oilrun", "house_call", "표지안", "77사7890", "코나", 16, 30, 60, "s6", "branch1", "scheduled", 89000, { isHouseCall: true, address: "송파구 잠실동 200-12" }),
+]
+
+// "새 예약 동시 들어옴" 데모용 — 자동 배정 시뮬레이션
+export interface SaasIncomingBooking {
+  id: string
+  channel: SaasChannel
+  jobType: SaasJobType
+  customerName: string
+  vehiclePlate: string
+  vehicleModel: string
+  preferredTime: string
+  total: number
+  videoRef?: string
+  message?: string
+}
+
+export const saasIncomingBookings: SaasIncomingBooking[] = [
+  {
+    id: "I-001",
+    channel: "kakao",
+    jobType: "blackbox",
+    customerName: "홍길동",
+    vehiclePlate: "98가1234",
+    vehicleModel: "K7 프리미어",
+    preferredTime: "오늘 오후",
+    total: 350000,
+    message: "앞뒤 2채널로 부탁드려요",
+  },
+  {
+    id: "I-002",
+    channel: "phone",
+    jobType: "oil",
+    customerName: "장영실",
+    vehiclePlate: "76나5678",
+    vehicleModel: "그랜저 IG",
+    preferredTime: "내일 오전",
+    total: 89000,
+  },
+  {
+    id: "I-003",
+    channel: "youtube",
+    jobType: "inspection",
+    customerName: "김유튜브",
+    vehiclePlate: "54다9012",
+    vehicleModel: "K5 DL3",
+    preferredTime: "주말 오후",
+    total: 50000,
+    videoRef: "video-001",
+    message: "오일 교환 영상 보고 점검 받으러 가요",
+  },
+]
+
+// Customers (단골 차주)
+export interface SaasCustomer {
+  id: string
+  name: string
+  phone: string
+  vehiclePlate: string
+  vehicleModel: string
+  vehicleYear: number
+  firstVisit: string
+  visitCount: number
+  totalSpent: number
+  lastServiceDate: string
+  lastServiceType: SaasJobType
+  lastServiceMenu: string
+  nextDueLabel: string
+  nextDueType?: SaasJobType
+  isDue: boolean
+  isVip?: boolean
+  source: SaasChannel
+  videoRef?: string
+}
+
+export const saasCustomers: SaasCustomer[] = [
+  {
+    id: "c1",
+    name: "김민수",
+    phone: "010-1111-2222",
+    vehiclePlate: "12가3456",
+    vehicleModel: "카니발 4세대",
+    vehicleYear: 2022,
+    firstVisit: "2024-03-12",
+    visitCount: 7,
+    totalSpent: 1230000,
+    lastServiceDate: "2025-11-12",
+    lastServiceType: "oil",
+    lastServiceMenu: "기본형 5W-30",
+    nextDueLabel: "오일 교환 권장",
+    nextDueType: "oil",
+    isDue: true,
+    isVip: true,
+    source: "kakao",
+  },
+  {
+    id: "c2",
+    name: "이서연",
+    phone: "010-2222-3333",
+    vehiclePlate: "34나5678",
+    vehicleModel: "쏘나타 DN8",
+    vehicleYear: 2021,
+    firstVisit: "2023-08-04",
+    visitCount: 12,
+    totalSpent: 2840000,
+    lastServiceDate: "2026-05-05",
+    lastServiceType: "blackbox",
+    lastServiceMenu: "블랙박스 2채널",
+    nextDueLabel: "1년 후 점검",
+    isDue: false,
+    isVip: true,
+    source: "naver",
+  },
+  {
+    id: "c3",
+    name: "박지호",
+    phone: "010-3333-4444",
+    vehiclePlate: "56다7890",
+    vehicleModel: "아반떼 CN7",
+    vehicleYear: 2023,
+    firstVisit: "2025-02-18",
+    visitCount: 3,
+    totalSpent: 320000,
+    lastServiceDate: "2025-12-02",
+    lastServiceType: "oil",
+    lastServiceMenu: "프리미엄 0W-20",
+    nextDueLabel: "오일 교환 임박",
+    nextDueType: "oil",
+    isDue: true,
+    source: "self",
+  },
+  {
+    id: "c4",
+    name: "송지유",
+    phone: "010-4444-5555",
+    vehiclePlate: "45다6677",
+    vehicleModel: "K5 DL3",
+    vehicleYear: 2022,
+    firstVisit: "2026-04-22",
+    visitCount: 1,
+    totalSpent: 89000,
+    lastServiceDate: "2026-04-22",
+    lastServiceType: "oil",
+    lastServiceMenu: "기본형 5W-30",
+    nextDueLabel: "다음 정비까지 5개월",
+    isDue: false,
+    source: "youtube",
+    videoRef: "video-001",
+  },
+  {
+    id: "c5",
+    name: "노현우",
+    phone: "010-5555-6666",
+    vehiclePlate: "23사3344",
+    vehicleModel: "EV6",
+    vehicleYear: 2024,
+    firstVisit: "2025-09-30",
+    visitCount: 2,
+    totalSpent: 110000,
+    lastServiceDate: "2026-01-15",
+    lastServiceType: "inspection",
+    lastServiceMenu: "정기점검",
+    nextDueLabel: "정기점검 권장",
+    nextDueType: "inspection",
+    isDue: true,
+    source: "youtube",
+    videoRef: "video-005",
+  },
+  {
+    id: "c6",
+    name: "한지우",
+    phone: "010-6666-7777",
+    vehiclePlate: "12가7788",
+    vehicleModel: "그랜저 IG",
+    vehicleYear: 2020,
+    firstVisit: "2022-11-08",
+    visitCount: 18,
+    totalSpent: 4120000,
+    lastServiceDate: "2026-05-05",
+    lastServiceType: "oil",
+    lastServiceMenu: "프리미엄 0W-20",
+    nextDueLabel: "5개월 후 권장",
+    isDue: false,
+    isVip: true,
+    source: "phone",
+  },
+  {
+    id: "c7",
+    name: "최예린",
+    phone: "010-7777-8888",
+    vehiclePlate: "78라9012",
+    vehicleModel: "쏘렌토 MQ4",
+    vehicleYear: 2022,
+    firstVisit: "2024-06-15",
+    visitCount: 5,
+    totalSpent: 920000,
+    lastServiceDate: "2026-05-05",
+    lastServiceType: "tire",
+    lastServiceMenu: "타이어 4본",
+    nextDueLabel: "오일 교환까지 2개월",
+    isDue: false,
+    source: "phone",
+  },
+  {
+    id: "c8",
+    name: "정도윤",
+    phone: "010-8888-9999",
+    vehiclePlate: "90마1234",
+    vehicleModel: "모닝 JA",
+    vehicleYear: 2020,
+    firstVisit: "2025-04-01",
+    visitCount: 4,
+    totalSpent: 380000,
+    lastServiceDate: "2026-05-05",
+    lastServiceType: "house_call",
+    lastServiceMenu: "출장 오일 5W-30",
+    nextDueLabel: "6개월 후 권장",
+    isDue: false,
+    source: "oilrun",
+  },
+]
+
+// 채널별 매출 비중 (이번 달)
+export interface ChannelRevenueShare {
+  channel: SaasChannel
+  share: number
+  monthRevenue: number
+  bookings: number
+}
+
+export const channelRevenueShare: ChannelRevenueShare[] = [
+  { channel: "kakao", share: 32, monthRevenue: 9120000, bookings: 142 },
+  { channel: "phone", share: 25, monthRevenue: 7125000, bookings: 98 },
+  { channel: "naver", share: 18, monthRevenue: 5130000, bookings: 64 },
+  { channel: "self", share: 12, monthRevenue: 3420000, bookings: 51 },
+  { channel: "youtube", share: 8, monthRevenue: 2280000, bookings: 32 },
+  { channel: "oilrun", share: 5, monthRevenue: 1425000, bookings: 21 },
+]
+
+// 메뉴별 매출 (이번 달)
+export interface MenuRevenueRow {
+  menuName: string
+  jobType: SaasJobType
+  count: number
+  revenue: number
+}
+
+export const menuRevenueByMonth: MenuRevenueRow[] = [
+  { menuName: "오일교환 (기본 5W-30)", jobType: "oil", count: 89, revenue: 7921000 },
+  { menuName: "오일교환 (프리미엄 0W-20)", jobType: "oil", count: 42, revenue: 5418000 },
+  { menuName: "타이어 교체", jobType: "tire", count: 34, revenue: 8400000 },
+  { menuName: "블랙박스 설치", jobType: "blackbox", count: 18, revenue: 6300000 },
+  { menuName: "정기점검", jobType: "inspection", count: 56, revenue: 2800000 },
+  { menuName: "배터리 교체", jobType: "battery", count: 12, revenue: 1800000 },
+  { menuName: "출장 오일", jobType: "house_call", count: 31, revenue: 3193000 },
+]
+
+// 지점별 일별 매출 추이 (지난 7일)
+export interface LocationDailyRevenue {
+  date: string
+  main: number
+  branch1: number
+}
+
+export const locationDailyRevenue: LocationDailyRevenue[] = [
+  { date: "4/29", main: 980000, branch1: 540000 },
+  { date: "4/30", main: 1340000, branch1: 720000 },
+  { date: "5/1", main: 1580000, branch1: 810000 },
+  { date: "5/2", main: 1760000, branch1: 920000 },
+  { date: "5/3", main: 1290000, branch1: 670000 },
+  { date: "5/4", main: 1100000, branch1: 580000 },
+  { date: "5/5", main: 1240000, branch1: 670000 },
+]
+
+// =============================================================================
+// 차주 부킹 페이지 (public surface) — /book/[shopSlug]
+// =============================================================================
+
+export type CarCategory = "compact" | "midsize" | "suv" | "luxury" | "ev"
+
+export const carCategoryLabel: Record<CarCategory, string> = {
+  compact: "경/소형",
+  midsize: "준중형/중형",
+  suv: "SUV/RV",
+  luxury: "수입/대형",
+  ev: "전기차",
+}
+
+export const carCategoryExamples: Record<CarCategory, string> = {
+  compact: "모닝, 스파크, 캐스퍼",
+  midsize: "아반떼, 쏘나타, K5",
+  suv: "투싼, 쏘렌토, 카니발",
+  luxury: "벤츠, BMW, 그랜저",
+  ev: "EV6, 아이오닉5, 테슬라",
+}
+
+export interface BookingMenu {
+  id: string
+  jobType: SaasJobType
+  name: string
+  description: string
+  prices: Record<CarCategory, number | null>
+  durationMin: number
+  recommended?: boolean
+}
+
+export const bookingMenus: BookingMenu[] = [
+  {
+    id: "bm1",
+    jobType: "oil",
+    name: "엔진오일 교환 (기본 5W-30)",
+    description: "표준 합성유, 1만km 주기 권장",
+    prices: { compact: 79000, midsize: 89000, suv: 99000, luxury: 119000, ev: null },
+    durationMin: 30,
+    recommended: true,
+  },
+  {
+    id: "bm2",
+    jobType: "oil",
+    name: "엔진오일 교환 (프리미엄 0W-20)",
+    description: "저점도, 신차·연비 향상",
+    prices: { compact: 119000, midsize: 129000, suv: 149000, luxury: 169000, ev: null },
+    durationMin: 30,
+  },
+  {
+    id: "bm3",
+    jobType: "blackbox",
+    name: "블랙박스 설치 (앞·뒤 2채널)",
+    description: "QHD 화질 + 32GB 메모리 포함",
+    prices: { compact: 350000, midsize: 350000, suv: 380000, luxury: 420000, ev: 380000 },
+    durationMin: 90,
+  },
+  {
+    id: "bm4",
+    jobType: "tire",
+    name: "타이어 교체 (1본)",
+    description: "정렬·밸런스 포함 (브랜드별 별도 견적)",
+    prices: { compact: 120000, midsize: 140000, suv: 180000, luxury: 250000, ev: 200000 },
+    durationMin: 45,
+  },
+  {
+    id: "bm5",
+    jobType: "battery",
+    name: "배터리 교체",
+    description: "국산/수입 모두 대응",
+    prices: { compact: 130000, midsize: 150000, suv: 180000, luxury: 250000, ev: 350000 },
+    durationMin: 30,
+  },
+  {
+    id: "bm6",
+    jobType: "inspection",
+    name: "정기 종합점검",
+    description: "엔진·하부·타이어·전기 시스템 전체",
+    prices: { compact: 50000, midsize: 50000, suv: 60000, luxury: 80000, ev: 60000 },
+    durationMin: 60,
+  },
+]
+
+// 경고등 종류 (증상 b)
+export interface WarningLight {
+  id: string
+  emoji: string
+  name: string
+  severity: "high" | "mid" | "low"
+  hint: string
+}
+
+export const warningLights: WarningLight[] = [
+  { id: "wl1", emoji: "🔧", name: "엔진 경고등", severity: "high", hint: "즉시 점검 필요할 수 있어요" },
+  { id: "wl2", emoji: "🛢️", name: "엔진오일 경고등", severity: "high", hint: "오일 부족 또는 오일펌프 이상" },
+  { id: "wl3", emoji: "🌡️", name: "엔진 과열", severity: "high", hint: "주행 중지 후 점검 권장" },
+  { id: "wl4", emoji: "🔋", name: "배터리 경고등", severity: "mid", hint: "충전 시스템 또는 배터리 노후" },
+  { id: "wl5", emoji: "🛞", name: "타이어 공기압", severity: "low", hint: "공기압 점검 후 보충" },
+  { id: "wl6", emoji: "⚠️", name: "ABS 경고등", severity: "mid", hint: "제동 관련 시스템 점검" },
+  { id: "wl7", emoji: "❓", name: "잘 모르겠어요", severity: "mid", hint: "사진 올리시면 사장님이 확인해드려요" },
+]
+
+// 정비소 퍼블릭 정보
+export interface SaasPublicShop {
+  slug: string
+  name: string
+  shortName: string
+  ownerName: string
+  ownerGreeting: string
+  address: string
+  phone: string
+  hours: string
+  ratingAvg: number
+  ratingCount: number
+  servicesCount: number
+  yearsInBusiness: number
+  hasCreatorModule: boolean
+  channelName?: string
+  channelHandle?: string
+  channelSubscribers?: number
+  channelDescription?: string
+}
+
+export const saasPublicShops: SaasPublicShop[] = [
+  {
+    slug: "hyungje",
+    name: "형제자동차정비",
+    shortName: "형제카센터",
+    ownerName: "김형제",
+    ownerGreeting: "30년 경력, 친절·정직 약속드립니다",
+    address: "서울시 강남구 역삼동 123-45",
+    phone: "02-123-4567",
+    hours: "평일 09:00–19:00 / 토 09:00–14:00 / 일·공휴일 휴무",
+    ratingAvg: 4.9,
+    ratingCount: 1284,
+    servicesCount: 8420,
+    yearsInBusiness: 30,
+    hasCreatorModule: true,
+    channelName: "형제카센터TV",
+    channelHandle: "@hyungje_tv",
+    channelSubscribers: 130000,
+    channelDescription: "30년차 정비사가 알려주는 자동차 상식, 셀프점검, 정비 노하우",
+  },
+]
+
+// =============================================================================
+// Creator 모듈 — YouTube 영상 → 매출 funnel
+// =============================================================================
+
+export interface CreatorVideo {
+  id: string
+  title: string
+  thumbnailEmoji: string
+  publishedAt: string
+  duration: string
+  views: number
+  bookingClicks: number
+  bookings: number
+  revenue: number
+  isTopPerformer?: boolean
+}
+
+export const creatorVideos: CreatorVideo[] = [
+  {
+    id: "video-001",
+    title: "엔진오일 교환 주기, 1만km vs 1만5천km 진실",
+    thumbnailEmoji: "🛢️",
+    publishedAt: "2026-04-18",
+    duration: "12:34",
+    views: 142000,
+    bookingClicks: 3400,
+    bookings: 87,
+    revenue: 7250000,
+    isTopPerformer: true,
+  },
+  {
+    id: "video-002",
+    title: "블랙박스 직접 설치 vs 정비소, 뭐가 나을까?",
+    thumbnailEmoji: "📹",
+    publishedAt: "2026-04-02",
+    duration: "8:21",
+    views: 89000,
+    bookingClicks: 2100,
+    bookings: 42,
+    revenue: 14700000,
+    isTopPerformer: true,
+  },
+  {
+    id: "video-003",
+    title: "타이어 공기압 경고등 떴을 때 5분 자가점검",
+    thumbnailEmoji: "🛞",
+    publishedAt: "2026-03-22",
+    duration: "5:48",
+    views: 67000,
+    bookingClicks: 980,
+    bookings: 18,
+    revenue: 2160000,
+  },
+  {
+    id: "video-004",
+    title: "배터리 방전 직전 신호 5가지 (꼭 확인하세요)",
+    thumbnailEmoji: "🔋",
+    publishedAt: "2026-03-08",
+    duration: "9:15",
+    views: 54000,
+    bookingClicks: 760,
+    bookings: 15,
+    revenue: 2250000,
+  },
+  {
+    id: "video-005",
+    title: "엔진경고등 떴을 때 절대 하면 안 되는 행동",
+    thumbnailEmoji: "🔧",
+    publishedAt: "2026-02-19",
+    duration: "11:02",
+    views: 38000,
+    bookingClicks: 540,
+    bookings: 12,
+    revenue: 720000,
+  },
+]
+
+export interface CreatorFunnel {
+  videoViews: number
+  linkClicks: number
+  pageViews: number
+  bookings: number
+  revenue: number
+  clickThroughRate: number
+  bookingConversionRate: number
+}
+
+export const creatorFunnel30d: CreatorFunnel = {
+  videoViews: 390000,
+  linkClicks: 7780,
+  pageViews: 6450,
+  bookings: 174,
+  revenue: 27080000,
+  clickThroughRate: 2.0,
+  bookingConversionRate: 2.7,
+}
+
+export interface CreatorChannelMeta {
+  shopSlug: string
+  channelName: string
+  channelHandle: string
+  subscribers: number
+  videoCount: number
+  totalViews: number
+}
+
+export const creatorChannelMeta: CreatorChannelMeta = {
+  shopSlug: "hyungje",
+  channelName: "형제카센터TV",
+  channelHandle: "@hyungje_tv",
+  subscribers: 130000,
+  videoCount: 218,
+  totalViews: 8430000,
+}
+
+export function findVideoById(id?: string): CreatorVideo | undefined {
+  if (!id) return undefined
+  return creatorVideos.find((v) => v.id === id)
+}
+
+export function findPublicShopBySlug(slug: string): SaasPublicShop | undefined {
+  return saasPublicShops.find((s) => s.slug === slug)
+}
+
 export type TimeSlotKind = "asap" | "tomorrow_am" | "tomorrow_pm" | "custom"
 
 export interface TimeDisplay {
