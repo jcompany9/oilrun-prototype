@@ -77,6 +77,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
   // ─── Supabase Realtime: Booking 변경 시 자동 refresh
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
+    if (!supabase) return // env 미설정 시 realtime 비활성
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
     const channel = supabase
