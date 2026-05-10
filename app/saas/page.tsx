@@ -219,6 +219,12 @@ export default function SaasCalendarPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [now, setNow] = useState<Date>(new Date())
   const [selectedJob, setSelectedJob] = useState<SaasJob | null>(null)
+
+  // SSR(UTC) vs 클라이언트(KST) 시간 불일치 hydration error 방지 — 클라이언트 mount 후에만 렌더
+  const [clientReady, setClientReady] = useState(false)
+  useEffect(() => {
+    setClientReady(true)
+  }, [])
   const [calendarSettings, setCalendarSettings] = useState<CalendarSettings>(
     DEFAULT_CALENDAR_SETTINGS
   )
@@ -298,6 +304,15 @@ export default function SaasCalendarPage() {
     registerAutoAssign(autoAssign)
     return () => registerAutoAssign(null)
   }, [autoAssign, registerAutoAssign])
+
+  // SSR/CSR 시간 불일치 방지 — 첫 mount 전엔 skeleton만
+  if (!clientReady) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-gray-500">캘린더 로드 중…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
