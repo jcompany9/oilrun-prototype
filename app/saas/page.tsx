@@ -662,6 +662,18 @@ function Timeline({
           startMinute: newStartMin % 60,
           staffId: newStaffId,
         })
+
+        // 드래그 종료 직후 brwoser가 synthesize하는 click 이벤트 차단
+        // (mousedown + mouseup이 같은 element에서 일어나면 click이 자동 fire되어
+        //  카드 onClick → onSelect(상세 팝업) 트리거됨)
+        const blockClick = (ev: MouseEvent) => {
+          ev.preventDefault()
+          ev.stopPropagation()
+        }
+        window.addEventListener("click", blockClick, {
+          capture: true,
+          once: true,
+        })
       }
       setDrag(null)
     }
