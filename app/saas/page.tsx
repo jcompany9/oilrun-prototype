@@ -65,7 +65,7 @@ const JOB_TYPE_ICON: Record<SaasJobType, LucideIcon> = {
 }
 
 // 시간 그리드는 settings에서 동적으로 (영업 시작/종료, 행 크기)
-const HOUR_WIDTH = 112
+const HOUR_WIDTH = 160
 const LABEL_WIDTH = 132
 const SLOT_SNAP_MIN = 30 // 빈 슬롯 클릭 시 30분 단위로 스냅
 
@@ -1054,7 +1054,7 @@ function EventCard({
       style={{
         left,
         top,
-        width: Math.max(width, 56),
+        width: Math.max(width, 76),
         height,
         borderLeftWidth: 3,
         borderLeftStyle: job.isHouseCall ? "dashed" : "solid",
