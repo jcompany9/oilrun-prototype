@@ -11,10 +11,8 @@ import type { TenantContext } from "./tenant"
 const DEV_SHOP_SLUG = "hyungje"
 
 export async function getCurrentTenant(): Promise<TenantContext> {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("auth-stub is dev-only — replace with Auth.js session lookup")
-  }
-
+  // TODO: Auth.js 통합 후 NextAuth 세션에서 shopId 추출
+  // 프로토타입 단계는 production에서도 stub 사용 (단일 정비소 시연용)
   const shop = await prisma.shop.findUniqueOrThrow({
     where: { slug: DEV_SHOP_SLUG },
   })
